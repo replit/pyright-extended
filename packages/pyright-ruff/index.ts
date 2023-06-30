@@ -1,4 +1,4 @@
-import { Diagnostic, DiagnosticCategory } from '../pyright-internal/src/common/diagnostic'
+import { Diagnostic, DiagnosticAction, DiagnosticCategory } from '../pyright-internal/src/common/diagnostic'
 import { spawnSync } from "node:child_process"
 
 interface Location {
@@ -34,20 +34,33 @@ function convertDiagnostic(diag: RuffDiagnostic): Diagnostic {
   const category = diag.code.match(ErrorRegex) ? DiagnosticCategory.Error : DiagnosticCategory.Warning
   const convertedDiag = new Diagnostic(category, diag.message, {
     start: {
-      line: diag.location.row - 1,
-      character: diag.location.column - 1
+      line: Math.max(diag.location.row - 1, 0),
+      character: Math.max(diag.location.column - 1, 0)
     } ,
     end: {
-      line: diag.end_location.row - 1,
-      character: diag.end_location.column - 1
+      line: Math.max(diag.end_location.row - 1, 0),
+      character: Math.max(diag.end_location.column - 1, 0)
     }
   })
+
+  if (diag.fix) {
+    const action = {
+      edits: diag.fix.edits,
+      applicability: diag.fix.applicability,
+      action: diag.fix.message
+    } as DiagnosticAction
+    convertedDiag.addAction(action)
+  }
+
   convertedDiag.setRule(diag.code)
   return convertedDiag
 }
 
+// see https://beta.ruff.rs/docs/rules/ for more info
+const RUFF_CODES = ["E", "F", "I", "RUF", "B", "C4"]
 export function getRuffDiagnosticsFromBuffer(fp: string, buf: string): Diagnostic[] {
-    const outBuf = spawnSync(`ruff`, ["check", "--stdin-filename", fp, "--quiet", "--format=json", "--force-exclude", "-"], {
+    const ruffArgs = RUFF_CODES.flatMap(code => (['--select', code]))
+    const outBuf = spawnSync(`ruff`, ["check", "--stdin-filename", fp, ...ruffArgs, "--quiet", "--format=json", "--force-exclude", "-"], {
       input: buf
     })
 

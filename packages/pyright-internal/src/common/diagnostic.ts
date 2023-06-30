@@ -30,6 +30,7 @@ export interface TaskListToken {
 
 export const enum ActionKind {
     RenameShadowedFileAction = 'renameShadowedFile',
+    SortImports = 'sortImports'
 }
 
 export const enum DiagnosticCategory {
@@ -81,6 +82,11 @@ export interface RenameShadowedFileAction extends DiagnosticAction {
     action: ActionKind.RenameShadowedFileAction;
     oldFile: string;
     newFile: string;
+}
+
+export interface SortImports extends DiagnosticAction {
+    action: ActionKind.SortImports;
+
 }
 
 export interface DiagnosticRelatedInfo {
