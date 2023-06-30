@@ -7,6 +7,8 @@
  */
 
 import { CancellationToken, CodeAction, CodeActionKind, Command } from 'vscode-languageserver';
+import { URI } from 'vscode-uri';
+import { diagnosticsToCodeActions } from '../../../pyright-ruff';
 
 import { Commands } from '../commands/commands';
 import { throwIfCancellationRequested } from '../common/cancellationUtils';
@@ -36,7 +38,10 @@ export class CodeActionProvider {
         const codeActions: CodeAction[] = [];
 
         if (!workspace.disableLanguageServices) {
+            const docUri = URI.file(filePath).toString()
             const diags = await workspace.service.getDiagnosticsForRange(filePath, range, token);
+            codeActions.push(...diagnosticsToCodeActions(docUri, diags));
+
             const typeStubDiag = diags.find((d) => {
                 const actions = d.getActions();
                 return actions && actions.find((a) => a.action === Commands.createTypeStub);
