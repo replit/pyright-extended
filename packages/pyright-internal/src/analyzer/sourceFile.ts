@@ -552,7 +552,7 @@ export class SourceFile {
             if (fileContents === undefined) {
                 try {
                     const startTime = timingStats.readFileTime.totalTime;
-                    timingStats.readFileTime.timeOperation(async () => {
+                    timingStats.readFileTime.timeOperation(() => {
                         // Read the file's contents.
                         fileContents = content ?? this.getFileContent();
                         if (fileContents === undefined) {
@@ -1097,8 +1097,11 @@ export class SourceFile {
             );
         }
 
+        // default to filter out unused code, ruff is responsible for this
+        diagList = diagList.filter((diag) => diag.category !== DiagnosticCategory.UnusedCode)
+
         // map to indicate this is a pyrite diagnostic
-        diagList = diagList.map(diag => {
+        diagList = diagList.map((diag) => {
             const rule = diag.getRule()
             const ruleName = rule && !rule.startsWith("pyright") ? `pyright[${rule}]` : "pyright"
             diag.setRule(ruleName)
