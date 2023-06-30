@@ -43,6 +43,7 @@ import {
     DidCloseTextDocumentParams,
     DidOpenTextDocumentParams,
     Disposable,
+    DocumentFormattingParams,
     DocumentHighlight,
     DocumentHighlightParams,
     DocumentSymbol,
@@ -52,6 +53,7 @@ import {
     HoverParams,
     InitializeParams,
     InitializeResult,
+    InlayHint,
     Location,
     MarkupKind,
     PrepareRenameParams,
@@ -64,6 +66,7 @@ import {
     SymbolInformation,
     TextDocumentPositionParams,
     TextDocumentSyncKind,
+    TextEdit,
     WatchKind,
     WorkDoneProgressReporter,
     WorkspaceEdit,
@@ -325,10 +328,10 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
         hasDocumentChangeCapability: false,
         hasDocumentAnnotationCapability: false,
         hasCompletionCommitCharCapability: false,
-        hoverContentFormat: MarkupKind.PlainText,
+        hoverContentFormat: MarkupKind.Markdown,
         completionDocFormat: MarkupKind.PlainText,
         completionSupportsSnippet: false,
-        signatureDocFormat: MarkupKind.PlainText,
+        signatureDocFormat: MarkupKind.Markdown,
         supportsDeprecatedDiagnosticTag: false,
         supportsUnnecessaryDiagnosticTag: false,
         supportsTaskItemDiagnosticTag: false,
@@ -651,6 +654,10 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
             this.onExecuteCommand(params, token, reporter)
         );
         this.connection.onShutdown(async (token) => this.onShutdown(token));
+
+        // augments
+        this.connection.onDocumentFormatting(async (params) => this.onDocumentFormatting(params));
+        this.connection.languages.inlayHint.on(this.onInlayHintRequest);
     }
 
     protected initialize(
@@ -753,6 +760,9 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
                         changeNotifications: true,
                     },
                 },
+                // augments
+                inlayHintProvider: true,
+                documentFormattingProvider: true
             },
         };
 
@@ -799,6 +809,13 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
                     return new DefinitionProvider(program, filePath, position, filter, token).getDefinitions();
                 }, token)
         );
+    }
+
+    protected async onInlayHintRequest(): Promise<InlayHint[] | undefined | null> {
+        return null
+    }
+    protected async onDocumentFormatting(params: DocumentFormattingParams): Promise<TextEdit[] | undefined | null> {
+        return null
     }
 
     protected async onDeclaration(

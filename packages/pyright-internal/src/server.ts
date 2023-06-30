@@ -57,7 +57,7 @@ export class PyrightServer extends LanguageServerBase {
 
         super(
             {
-                productName: 'Pyright',
+                productName: 'pyright-extended',
                 rootDirectory,
                 version,
                 fileSystem,
