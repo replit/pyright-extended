@@ -5,165 +5,154 @@ import { URI } from 'vscode-uri';
 import { spawnSync, SpawnSyncReturns } from "node:child_process"
 
 interface Location {
-  column: number
-  row: number
+    column: number
+    row: number
 }
 
 interface Edit {
-  content: string
-  location: Location
-  end_location: Location
+    content: string
+    location: Location
+    end_location: Location
 }
 
 interface Fix {
-  applicability: 'Automatic' | 'Suggested' | 'Manual' | 'Unspecified'
-  edits: Edit[]
-  message: string
+    applicability: 'Automatic' | 'Suggested' | 'Manual' | 'Unspecified'
+    edits: Edit[]
+    message: string
 }
 
 interface RuffDiagnostic {
-  code: string,
-  location: Location
-  end_location: Location
-  filename: string
-  fix: Fix | null,
-  message: string
-  noqa_row: number
-  url: string
+    code: string,
+    location: Location
+    end_location: Location
+    filename: string
+    fix: Fix | null,
+    message: string
+    noqa_row: number
+    url: string
 }
 
 export interface RuffAction extends DiagnosticAction {
-  action: string;
-  source: "ruff";
-  code: string;
-  payload: Fix;
+    action: string;
+    source: "ruff";
+    code: string;
+    payload: Fix;
 }
 
 // ruff uses 1-indexed columns and rows but LSP expects 0-indexed columns and rows
 function convertRange(start: Location, end: Location): Range {
-  return {
-    start: {
-      line: Math.max(start.row - 1, 0),
-      character: Math.max(start.column - 1, 0)
-    },
-    end: {
-      line: Math.max(end.row - 1, 0),
-      character: Math.max(end.column - 1, 0)
+    return {
+        start: {
+            line: Math.max(start.row - 1, 0),
+            character: Math.max(start.column - 1, 0)
+        },
+        end: {
+            line: Math.max(end.row - 1, 0),
+            character: Math.max(end.column - 1, 0)
+        }
     }
-  }
 }
 
 function convertEdit(edit: Edit): TextEdit {
-  return {
-    newText: edit.content,
-    range: convertRange(edit.location, edit.end_location)
-  }
+    return {
+        newText: edit.content,
+        range: convertRange(edit.location, edit.end_location)
+    }
 }
 
 const ErrorRegex = new RegExp(/^E\d{3}$/)
 function convertDiagnostic(diag: RuffDiagnostic): Diagnostic {
-  const category = diag.code.match(ErrorRegex) ? DiagnosticCategory.Error : DiagnosticCategory.Warning
-  const convertedDiag = new Diagnostic(category, diag.message, convertRange(diag.location, diag.end_location))
+    const category = diag.code.match(ErrorRegex) ? DiagnosticCategory.Error : DiagnosticCategory.Warning
+    const convertedDiag = new Diagnostic(category, diag.message, convertRange(diag.location, diag.end_location))
 
-  if (diag.fix) {
-    const action: RuffAction = {
-      action: diag.fix.message,
-      source: "ruff",
-      code: diag.code,
-      payload: diag.fix
+    if (diag.fix) {
+        const action: RuffAction = {
+            action: diag.fix.message,
+            source: "ruff",
+            code: diag.code,
+            payload: diag.fix
+        }
+        convertedDiag.addAction(action)
     }
-    convertedDiag.addAction(action)
-  }
 
-  convertedDiag.setRule(diag.code)
-  return convertedDiag
+    convertedDiag.setRule(diag.code)
+    return convertedDiag
 }
 
 // see https://beta.ruff.rs/docs/rules/ for more info
-const RUFF_CODES = ["E", "F", "I", "RUF", "B", "C4"]
-function _runRuff(fp: string, buf: string, fix: boolean = false): SpawnSyncReturns<Buffer> {
-  const ruffArgs = RUFF_CODES.flatMap(code => (['--select', code]))
-  const args = ["check", "--stdin-filename", fp, ...ruffArgs, "--quiet", "--format=json", "--force-exclude"]
-
-  if (fix) {
-    args.push("--fix-only")
-  }
-
-  args.push("-")
-  return spawnSync(`ruff`, args, {
-    input: buf
-  })
+const RUFF_CODES = ["E", "W", "F", "I", "RUF", "B", "C4", "ARG", "SIM"]
+function _runRuff(fp: string, buf: string, ...extraArgs: string[]): SpawnSyncReturns<Buffer> {
+    const ruffArgs = RUFF_CODES.flatMap(code => (['--select', code]))
+    const args = ["check", "--stdin-filename", fp, ...ruffArgs, "--quiet", "--format=json", "--force-exclude", ...(extraArgs ?? []), "-"]
+    return spawnSync(`ruff`, args, {
+        input: buf
+    })
 }
 
-
 export function getRuffDiagnosticsFromBuffer(fp: string, buf: string): Diagnostic[] {
-  const outBuf = _runRuff(fp, buf)
-  if (outBuf.error) {
-    console.error(`Error running ruff: ${outBuf.stderr}`)
-    return []
-  }
+    const outBuf = _runRuff(fp, buf)
+    if (outBuf.error) {
+        console.error(`Error running ruff: ${outBuf.stderr}`)
+        return []
+    }
 
-  const stdout = outBuf.stdout.toString()
-  const diags = JSON.parse(stdout) as RuffDiagnostic[]
-  return diags.map(convertDiagnostic)
+    const stdout = outBuf.stdout.toString()
+    const diags = JSON.parse(stdout) as RuffDiagnostic[]
+    return diags.map(convertDiagnostic)
 }
 
 function ruffFix(fp: string, buf: string): string {
-  const outBuf = _runRuff(fp, buf, true)
-  if (outBuf.error) {
-    console.error(`Error running ruff: ${outBuf.stderr}`)
-    return buf // do nothing if we fail
-  }
+    const outBuf = _runRuff(fp, buf, "--fix-only")
+    if (outBuf.error) {
+        console.error(`Error running ruff: ${outBuf.stderr}`)
+        return buf // do nothing if we fail
+    }
 
-  const newBuf = outBuf.stdout.toString()
-  return newBuf
-}
-
-function ruffFormat(fp: string, buf: string): string {
-  return buf
+    const newBuf = outBuf.stdout.toString()
+    return newBuf
 }
 
 const ImportSortRegex = new RegExp(/^I\d{3}$/)
 export function getCodeActions(fp: string, buf: string | null, diags: Diagnostic[]): CodeAction[] {
-  const docUri = URI.file(fp).toString()
-  const constructChanges = (edits: TextEdit[]): Record<string, TextEdit[]> => {
-    const changes: Record<string, TextEdit[]> = {}
-    changes[docUri] = edits
-    return changes
-  }
+    const docUri = URI.file(fp).toString()
+    const constructChanges = (edits: TextEdit[]): Record<string, TextEdit[]> => {
+        const changes: Record<string, TextEdit[]> = {}
+        changes[docUri] = edits
+        return changes
+    }
 
-  const actions = diags
-    .filter(diag => {
-      const actions = (diag.getActions() ?? []) as RuffAction[]
-      const ruffActions = actions.filter(a => a.source === "ruff")
-      return ruffActions.length > 0
-    })
-    .map(diag => {
-      const action = diag.getActions()![0] as RuffAction
-      const message = action.action
-      const fix = action.payload
-      const changes = constructChanges(fix.edits.map(convertEdit))
-      const kind = action.code.match(ImportSortRegex) ? CodeActionKind.SourceOrganizeImports : CodeActionKind.QuickFix
-      return CodeAction.create(message, { changes }, kind)
-    })
+    const actions = diags
+        .filter(diag => {
+            const actions = (diag.getActions() ?? []) as RuffAction[]
+            const ruffActions = actions.filter(a => a.source === "ruff")
+            return ruffActions.length > 0
+        })
+        .map(diag => {
+            const action = diag.getActions()![0] as RuffAction
+            const message = action.action
+            const fix = action.payload
+            const changes = constructChanges(fix.edits.map(convertEdit))
+            const kind = action.code.match(ImportSortRegex) ? CodeActionKind.SourceOrganizeImports : CodeActionKind.QuickFix
+            return CodeAction.create(message, { changes }, kind)
+        })
 
-  // fix all code action, only added if we have track this file as opened (buf exists)
-  if (buf) {
-    const changes = constructChanges([{
-      // range may seem sus but this is what the official ruff lsp actually does https://github.com/astral-sh/ruff-lsp/blob/main/ruff_lsp/server.py#L735-L740
-      range: {
-        start: {
-          line: 0,
-          character: 0
-        },
-        end: {
-          line: uinteger.MAX_VALUE,
-          character: 0,
-        }
-      },
-      newText: ruffFix(fp, buf)
-    }])
-    actions.push(CodeAction.create("Fix all automatically fixable errors", { changes }, CodeActionKind.SourceFixAll))
-  }
-  return actions
+    // fix all code action, only added if we have track this file as opened (buf exists)
+    if (buf) {
+        const changes = constructChanges([{
+            // range may seem sus but this is what the official ruff lsp actually does https://github.com/astral-sh/ruff-lsp/blob/main/ruff_lsp/server.py#L735-L740
+            range: {
+                start: {
+                    line: 0,
+                    character: 0
+                },
+                end: {
+                    line: uinteger.MAX_VALUE,
+                    character: 0,
+                }
+            },
+            newText: ruffFix(fp, buf)
+        }])
+        actions.push(CodeAction.create("Fix all automatically fixable errors", { changes }, CodeActionKind.SourceFixAll))
+    }
+    return actions
 }

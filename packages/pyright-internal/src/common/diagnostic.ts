@@ -7,7 +7,6 @@
  * Class that represents errors and warnings.
  */
 
-import { CodeAction } from 'vscode-languageserver-protocol';
 import { Commands } from '../commands/commands';
 import { appendArray } from './collectionUtils';
 import { DiagnosticLevel } from './configOptions';
