@@ -80,16 +80,10 @@ function convertDiagnostic(diag: RuffDiagnostic): Diagnostic {
 }
 
 // see https://beta.ruff.rs/docs/rules/ for more info
-const RUFF_CODES = ["E", "F", "I", "RUF", "B", "C4"]
-function _runRuff(fp: string, buf: string, fix: boolean = false): SpawnSyncReturns<Buffer> {
+const RUFF_CODES = ["E", "W", "F", "I", "RUF", "B", "C4", "ARG", "SIM"]
+function _runRuff(fp: string, buf: string, ...extraArgs: string[]): SpawnSyncReturns<Buffer> {
     const ruffArgs = RUFF_CODES.flatMap(code => (['--select', code]))
-    const args = ["check", "--stdin-filename", fp, ...ruffArgs, "--quiet", "--format=json", "--force-exclude"]
-
-    if (fix) {
-        args.push("--fix-only")
-    }
-
-    args.push("-")
+    const args = ["check", "--stdin-filename", fp, ...ruffArgs, "--quiet", "--format=json", "--force-exclude", ...(extraArgs ?? []), "-"]
     return spawnSync(`ruff`, args, {
         input: buf
     })
@@ -109,7 +103,7 @@ export function getRuffDiagnosticsFromBuffer(fp: string, buf: string): Diagnosti
 }
 
 function ruffFix(fp: string, buf: string): string {
-    const outBuf = _runRuff(fp, buf, true)
+    const outBuf = _runRuff(fp, buf, "--fix-only")
     if (outBuf.error) {
         console.error(`Error running ruff: ${outBuf.stderr}`)
         return buf // do nothing if we fail
@@ -117,10 +111,6 @@ function ruffFix(fp: string, buf: string): string {
 
     const newBuf = outBuf.stdout.toString()
     return newBuf
-}
-
-function ruffFormat(fp: string, buf: string): string {
-    return buf
 }
 
 const ImportSortRegex = new RegExp(/^I\d{3}$/)
