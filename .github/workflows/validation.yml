@@ -80,6 +80,12 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - uses: actions/setup-python@v4
+        with:
+            python-version: '3.9'
+            cache: 'pip'
+      - run: pip install ruff yapf
+
       - uses: actions/setup-node@v3
         with:
           node-version: ${{ env.NODE_VERSION }}
