@@ -1,17 +1,17 @@
 {
-  "name": "pyright-ruff",
-  "version": "0.1.0",
-  "private": true,
-  "dependencies": {
-    "vscode-languageserver": "8.1.0",
-    "vscode-uri": "^3.0.7"
-  },
-  "files": [
-    "dist"
-  ],
-  "scripts": {
-    "build": "tsc"
-  },
-  "author": "Jacky Zhao",
-  "license": "MIT"
+    "name": "pyright-ruff",
+    "version": "0.1.0",
+    "private": true,
+    "dependencies": {
+        "vscode-languageserver": "8.1.0",
+        "vscode-uri": "^3.0.7"
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsc"
+    },
+    "author": "Jacky Zhao",
+    "license": "MIT"
 }
