@@ -39,6 +39,18 @@ lspconfig["pyright-extended"].setup{}
 vim.lsp.set_log_level("INFO")
 ```
 
+# Setup with VS Code
+
+To test Pyright-extended in VS Code:
+
+1. install deps: `npm run install:all`
+2. build the `.vsix` file: `cd packages/vscode-pyright; npm run package`, this generates a `.vsix` file
+3. In VS Code, go to extensions
+4. If you have Pylance, remove it, and reload
+5. If Pyright already exists, remove it, and reload
+6. In extensions, select "Install from VSIX..." and pick the .vsix file from step 2
+7. Make a `main.py`, start typing in code, and you should get context help
+
 # Subpackages
 ## Pyright 
 Pyright is a full-featured, standards-based static type checker for Python. It is designed for high performance and can be used with large Python source bases.
