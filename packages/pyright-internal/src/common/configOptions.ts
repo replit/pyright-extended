@@ -806,6 +806,7 @@ export class ConfigOptions {
     }
 
     static getDiagnosticRuleSet(typeCheckingMode?: string): DiagnosticRuleSet {
+        // TODO(replit): see if we need to modify these to suppress `ruff` messages
         if (typeCheckingMode === 'strict') {
             return getStrictDiagnosticRuleSet();
         }
