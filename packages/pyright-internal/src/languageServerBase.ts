@@ -125,6 +125,7 @@ import { PyrightFileSystem } from './pyrightFileSystem';
 import { InitStatus, WellKnownWorkspaceKinds, Workspace, WorkspaceFactory } from './workspaceFactory';
 import { RenameProvider } from './languageService/renameProvider';
 import { WorkspaceSymbolProvider } from './languageService/workspaceSymbolProvider';
+import { formatBufferWithYapf } from '../../pyright-yapf';
 
 export interface ServerSettings {
     venvPath?: string | undefined;
@@ -762,7 +763,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
                 },
                 // augments
                 inlayHintProvider: true,
-                documentFormattingProvider: true
+                documentFormattingProvider: true,
             },
         };
 
@@ -812,10 +813,20 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
     }
 
     protected async onInlayHintRequest(): Promise<InlayHint[] | undefined | null> {
-        return null
+        // use DefinitionProvider or HoverProvider to assist with this
+        return null;
     }
+
     protected async onDocumentFormatting(params: DocumentFormattingParams): Promise<TextEdit[] | undefined | null> {
-        return null
+        const filePath = this.uriParser.decodeTextDocumentUri(params.textDocument.uri);
+        const workspace = await this.getWorkspaceForFile(filePath);
+        if (workspace.disableLanguageServices) {
+            return;
+        }
+
+        const buf = workspace.service.getSourceFile(filePath)?.getOpenFileContents();
+        if (!buf) return;
+        return formatBufferWithYapf(buf, params.options.tabSize);
     }
 
     protected async onDeclaration(

@@ -38,11 +38,13 @@ export class CodeActionProvider {
         if (!workspace.disableLanguageServices) {
             const diags = await workspace.service.getDiagnosticsForRange(filePath, range, token);
 
-            const buf = workspace.service.getSourceFile(filePath)?.getOpenFileContents() ?? null
-            codeActions.push(...getRuffCodeActions(filePath, buf, diags).map((ca) => ({
-              ...ca,
-              title: `ruff: ${ca.title}`
-            })));
+            const buf = workspace.service.getSourceFile(filePath)?.getOpenFileContents() ?? null;
+            codeActions.push(
+                ...getRuffCodeActions(filePath, buf, diags).map((ca) => ({
+                    ...ca,
+                    title: `ruff: ${ca.title}`,
+                }))
+            );
 
             const typeStubDiag = diags.find((d) => {
                 const actions = d.getActions();

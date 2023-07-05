@@ -1,5 +1,5 @@
 {
-    "name": "pyright-ruff",
+    "name": "pyright-yapf",
     "version": "0.1.0",
     "private": true,
     "dependencies": {
