@@ -1,27 +1,46 @@
 ![Pyright](https://github.com/microsoft/pyright/blob/main/docs/img/PyrightLarge.png)
 
-# Static Type Checker for Python
+# Setup
+1. Install dependencies
+    - `node` and `npm`
+    - `ruff`
+    - `yapf`
+2. Build: `cd ./packages/pyright && npm run build`
+3. Mark file as executable: `chmod +x ./packages/pyright/langserver.index.js`
+3. Start LSP in your client of choice: `./packages/pyright/langserver.index.js --stdio`
 
+An example setup for the Neovim editor looks something like the following:
+
+```lua
+local lspconfig = require 'lspconfig'
+local configs = require 'lspconfig.configs'
+local util = require 'lspconfig.util'
+if not configs["pyright-extended"] then
+  configs["pyright-extended"] = {
+    default_config = {
+      cmd = {'/Users/jzhao/projects/pyright-extended/packages/pyright/langserver.index.js', '--stdio'},
+      filetypes = { "python" },
+      autostart = true,
+      root_dir = util.root_pattern('pyproject.toml'),
+      single_file_support = true,
+      settings = {
+        python = {
+          analysis = {
+            autoSearchPaths = true,
+            diagnosticMode = "workspace",
+            useLibraryCodeForTypes = true
+          }
+        }
+      }
+    }
+  }
+end
+lspconfig["pyright-extended"].setup{}
+vim.lsp.set_log_level("INFO")
+```
+
+# Subpackages
+## Pyright 
 Pyright is a full-featured, standards-based static type checker for Python. It is designed for high performance and can be used with large Python source bases.
-
-Pyright includes both a [command-line tool](https://microsoft.github.io/pyright/#/command-line) and an [extension for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=ms-pyright.pyright).
-
-
-## Documentation
-
 Refer to [the documentation](https://microsoft.github.io/pyright) for installation, configuration, and usage details.
 
-
-## Community
-Do you have questions about Pyright or Python type annotations in general? Post your questions in [the discussion section](https://github.com/microsoft/pyright/discussions).
-
-If you would like to report a bug or request an enhancement, file a new issue in either the [pyright](https://github.com/microsoft/pyright/issues) or [pylance-release](https://github.com/microsoft/pylance-release/issues) issue tracker. In general, core type checking functionality is associated with Pyright while language service functionality is associated with Pylance, but the same contributors monitor both repos. For best results, provide the information requested in the issue template.
-
-
-## Contributing
-
-This project welcomes contributions and suggestions. For feature and complex bug fix contributions, it is recommended that you first discuss the proposed change with Pyright’s maintainers before submitting the pull request. Most contributions require you to agree to a Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us the rights to use your contribution. For details, visit https://cla.microsoft.com.
-
-When you submit a pull request, a CLA-bot will automatically determine whether you need to provide a CLA and decorate the PR appropriately (e.g., label, comment). Simply follow the instructions provided by the bot. You will only need to do this once across all repos using our CLA.
-
-This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/). For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.

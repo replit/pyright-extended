@@ -7,6 +7,7 @@
  */
 
 import { CancellationToken, CodeAction, CodeActionKind, Command } from 'vscode-languageserver';
+import { getCodeActions as getRuffCodeActions } from '../../../pyright-ruff';
 
 import { Commands } from '../commands/commands';
 import { throwIfCancellationRequested } from '../common/cancellationUtils';
@@ -34,9 +35,17 @@ export class CodeActionProvider {
         throwIfCancellationRequested(token);
 
         const codeActions: CodeAction[] = [];
-
         if (!workspace.disableLanguageServices) {
             const diags = await workspace.service.getDiagnosticsForRange(filePath, range, token);
+
+            const buf = workspace.service.getSourceFile(filePath)?.getOpenFileContents() ?? null;
+            codeActions.push(
+                ...getRuffCodeActions(filePath, buf, diags).map((ca) => ({
+                    ...ca,
+                    title: `ruff: ${ca.title}`,
+                }))
+            );
+
             const typeStubDiag = diags.find((d) => {
                 const actions = d.getActions();
                 return actions && actions.find((a) => a.action === Commands.createTypeStub);

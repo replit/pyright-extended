@@ -43,6 +43,7 @@ import {
     DidCloseTextDocumentParams,
     DidOpenTextDocumentParams,
     Disposable,
+    DocumentFormattingParams,
     DocumentHighlight,
     DocumentHighlightParams,
     DocumentSymbol,
@@ -52,6 +53,7 @@ import {
     HoverParams,
     InitializeParams,
     InitializeResult,
+    InlayHint,
     Location,
     MarkupKind,
     PrepareRenameParams,
@@ -64,6 +66,7 @@ import {
     SymbolInformation,
     TextDocumentPositionParams,
     TextDocumentSyncKind,
+    TextEdit,
     WatchKind,
     WorkDoneProgressReporter,
     WorkspaceEdit,
@@ -122,6 +125,7 @@ import { PyrightFileSystem } from './pyrightFileSystem';
 import { InitStatus, WellKnownWorkspaceKinds, Workspace, WorkspaceFactory } from './workspaceFactory';
 import { RenameProvider } from './languageService/renameProvider';
 import { WorkspaceSymbolProvider } from './languageService/workspaceSymbolProvider';
+import { formatBufferWithYapf } from '../../pyright-yapf';
 
 export interface ServerSettings {
     venvPath?: string | undefined;
@@ -325,10 +329,10 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
         hasDocumentChangeCapability: false,
         hasDocumentAnnotationCapability: false,
         hasCompletionCommitCharCapability: false,
-        hoverContentFormat: MarkupKind.PlainText,
+        hoverContentFormat: MarkupKind.Markdown,
         completionDocFormat: MarkupKind.PlainText,
         completionSupportsSnippet: false,
-        signatureDocFormat: MarkupKind.PlainText,
+        signatureDocFormat: MarkupKind.Markdown,
         supportsDeprecatedDiagnosticTag: false,
         supportsUnnecessaryDiagnosticTag: false,
         supportsTaskItemDiagnosticTag: false,
@@ -651,6 +655,10 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
             this.onExecuteCommand(params, token, reporter)
         );
         this.connection.onShutdown(async (token) => this.onShutdown(token));
+
+        // augments
+        this.connection.onDocumentFormatting(async (params) => this.onDocumentFormatting(params));
+        this.connection.languages.inlayHint.on(this.onInlayHintRequest);
     }
 
     protected initialize(
@@ -753,6 +761,9 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
                         changeNotifications: true,
                     },
                 },
+                // augments
+                inlayHintProvider: true,
+                documentFormattingProvider: true,
             },
         };
 
@@ -799,6 +810,23 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
                     return new DefinitionProvider(program, filePath, position, filter, token).getDefinitions();
                 }, token)
         );
+    }
+
+    protected async onInlayHintRequest(): Promise<InlayHint[] | undefined | null> {
+        // use DefinitionProvider or HoverProvider to assist with this
+        return null;
+    }
+
+    protected async onDocumentFormatting(params: DocumentFormattingParams): Promise<TextEdit[] | undefined | null> {
+        const filePath = this.uriParser.decodeTextDocumentUri(params.textDocument.uri);
+        const workspace = await this.getWorkspaceForFile(filePath);
+        if (workspace.disableLanguageServices) {
+            return;
+        }
+
+        const buf = workspace.service.getSourceFile(filePath)?.getOpenFileContents();
+        if (!buf) return;
+        return formatBufferWithYapf(buf, params.options.tabSize);
     }
 
     protected async onDeclaration(

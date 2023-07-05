@@ -1,7 +1,7 @@
 {
     "name": "pyright",
-    "displayName": "Pyright",
-    "description": "Type checker for the Python language",
+    "displayName": "pyright-extended",
+    "description": "Extending pyright with yapf + ruff",
     "version": "1.1.316",
     "license": "MIT",
     "author": {
