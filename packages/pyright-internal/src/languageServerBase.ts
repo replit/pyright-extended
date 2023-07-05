@@ -125,7 +125,7 @@ import { PyrightFileSystem } from './pyrightFileSystem';
 import { InitStatus, WellKnownWorkspaceKinds, Workspace, WorkspaceFactory } from './workspaceFactory';
 import { RenameProvider } from './languageService/renameProvider';
 import { WorkspaceSymbolProvider } from './languageService/workspaceSymbolProvider';
-import { formatBufferWithYapf } from "../../pyright-yapf";
+import { formatBufferWithYapf } from '../../pyright-yapf';
 
 export interface ServerSettings {
     venvPath?: string | undefined;
@@ -357,7 +357,8 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
         (global as any).__rootDirectory = serverOptions.rootDirectory;
 
         this.console.info(
-            `${serverOptions.productName} language server ${serverOptions.version && serverOptions.version + ' '
+            `${serverOptions.productName} language server ${
+                serverOptions.version && serverOptions.version + ' '
             }starting`
         );
 
@@ -762,7 +763,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
                 },
                 // augments
                 inlayHintProvider: true,
-                documentFormattingProvider: true
+                documentFormattingProvider: true,
             },
         };
 
@@ -813,7 +814,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
 
     protected async onInlayHintRequest(): Promise<InlayHint[] | undefined | null> {
         // use DefinitionProvider or HoverProvider to assist with this
-        return null
+        return null;
     }
 
     protected async onDocumentFormatting(params: DocumentFormattingParams): Promise<TextEdit[] | undefined | null> {
@@ -823,9 +824,9 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
             return;
         }
 
-        const buf = workspace.service.getSourceFile(filePath)?.getOpenFileContents()
-        if (!buf) return
-        return formatBufferWithYapf(buf, params.options.tabSize)
+        const buf = workspace.service.getSourceFile(filePath)?.getOpenFileContents();
+        if (!buf) return;
+        return formatBufferWithYapf(buf, params.options.tabSize);
     }
 
     protected async onDeclaration(
@@ -1348,8 +1349,8 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
                 results.filesRequiringAnalysis === 1
                     ? Localizer.CodeAction.filesToAnalyzeOne()
                     : Localizer.CodeAction.filesToAnalyzeCount().format({
-                        count: results.filesRequiringAnalysis,
-                    });
+                          count: results.filesRequiringAnalysis,
+                      });
             this._progressReporter.report(progressMessage);
         } else {
             this._progressReporter.end();
@@ -1381,9 +1382,9 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
         const libraryReanalysisTimeProvider =
             kinds.length === 1 && kinds[0] === WellKnownWorkspaceKinds.Regular
                 ? () =>
-                    this.workspaceFactory.hasMultipleWorkspaces(kinds[0])
-                        ? multiWorkspaceBackOffTime
-                        : defaultBackOffTime
+                      this.workspaceFactory.hasMultipleWorkspaces(kinds[0])
+                          ? multiWorkspaceBackOffTime
+                          : defaultBackOffTime
                 : () => defaultBackOffTime;
 
         return this.createAnalyzerService(name, services, libraryReanalysisTimeProvider);
