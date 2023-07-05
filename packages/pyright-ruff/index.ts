@@ -25,7 +25,7 @@ interface Fix {
 interface RuffDiagnostic {
     code: string;
     location: Location;
-    endLocation: Location;
+    end_location: Location;
     filename: string;
     fix: Fix | null;
     message: string;
@@ -64,7 +64,7 @@ function convertEdit(edit: Edit): TextEdit {
 const ErrorRegex = new RegExp(/^E\d{3}$/);
 function convertDiagnostic(diag: RuffDiagnostic): Diagnostic {
     const category = diag.code.match(ErrorRegex) ? DiagnosticCategory.Error : DiagnosticCategory.Warning;
-    const convertedDiag = new Diagnostic(category, diag.message, convertRange(diag.location, diag.endLocation));
+    const convertedDiag = new Diagnostic(category, diag.message, convertRange(diag.location, diag.end_location));
 
     if (diag.fix) {
         const action: RuffAction = {
