@@ -5,6 +5,7 @@
     - `node` and `npm`
     - `ruff`
     - `yapf`
+    - `npm run install:all`
 2. Build: `cd ./packages/pyright && npm run build`
 3. Mark file as executable: `chmod +x ./packages/pyright/langserver.index.js`
 3. Start LSP in your client of choice: `./packages/pyright/langserver.index.js --stdio`
@@ -38,6 +39,14 @@ end
 lspconfig["pyright-extended"].setup{}
 vim.lsp.set_log_level("INFO")
 ```
+
+# Building the Nix pkg
+1. Ensure you have Nix installed
+2. Make sure you've installed all the dependencies by doing `npm run install:all`
+3. Enter the shell for node2nix: `nix-shell -p 'nodePackages.node2nix'`
+4. In the shell, run `node2nix -l package-lock.json -d -18`
+5. Finally, run `nix-build -A package`
+6. The result lives in `./result/bin/langserver.index.js`
 
 # Subpackages
 ## Pyright 
