@@ -458,7 +458,7 @@ let
           node ${addIntegrityFieldsScript}
         ''}
 
-        npm ${forceOfflineFlag} --nodedir=${nodeSources} ${npmFlags} ${lib.optionalString production "--production"} --ignore-scripts rebuild
+        npm ${forceOfflineFlag} --nodedir=${nodeSources} ${npmFlags} ${lib.optionalString production "--omit-dev"} --ignore-scripts rebuild
 
         runHook postRebuild
 
@@ -467,7 +467,7 @@ let
             # NPM tries to download packages even when they already exist if npm-shrinkwrap is used.
             rm -f npm-shrinkwrap.json
 
-            npm ${forceOfflineFlag} --nodedir=${nodeSources} --no-bin-links --ignore-scripts ${npmFlags} ${lib.optionalString production "--production"} install
+            npm ${forceOfflineFlag} --nodedir=${nodeSources} --no-bin-links --ignore-scripts ${npmFlags} ${lib.optionalString production "--omit-dev"} install
         fi
 
         # Link executables defined in package.json
@@ -513,7 +513,6 @@ let
 
       passAsFile = [ "compositionScript" "pinpointDependenciesScript" ];
 
-      # build script (webpack) requires other dependencies
       installPhase = ''
         source ${installPackage}
 
@@ -525,17 +524,6 @@ let
         source $compositionScriptPath
 
         ${prepareAndInvokeNPM { inherit packageName bypassCache reconstructLock npmFlags production; }}
-
-        # npm ci --ignore-scripts
-        #
-        # # Now, do the build
-        # cd ./packages/pyright
-        # npm run build
-        # # copy result bin to the right places
-        # cp -r ./dist $out/bin/
-        # cp ./langserver.index.js $out/bin/
-        # # go back
-        # cd ../..
 
         # Create symlink to the deployed executable folder, if applicable
         if [ -d "$out/lib/node_modules/.bin" ]
