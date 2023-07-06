@@ -526,10 +526,7 @@ let
 
         ${prepareAndInvokeNPM { inherit packageName bypassCache reconstructLock npmFlags production; }}
 
-        #
-        # ls -al node_modules
         # npm ci --ignore-scripts
-        # ls -al node_modules
         #
         # # Now, do the build
         # cd ./packages/pyright
