@@ -151,7 +151,7 @@ export function getCodeActions(fp: string, buf: string | null, diags: Diagnostic
 
     // fix all code action, only added if we have track this file as opened (buf exists)
     if (buf) {
-        const fixed = ruffFix(fp, buf)
+        const fixed = ruffFix(fp, buf);
         if (buf !== fixed) {
             const changes = constructChanges([
                 {
