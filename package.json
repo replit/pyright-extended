@@ -17,7 +17,9 @@
         "fix:eslint": "eslint --fix .",
         "check:prettier": "prettier -c .",
         "fix:prettier": "prettier --write .",
-        "check:lockindent": "node ./build/checkLockIndent.js"
+        "check:lockindent": "node ./build/checkLockIndent.js",
+        "build:lsp": "cd packages/pyright && npm run build",
+        "publish:lsp": "npm publish ./packages/pyright --access public"
     },
     "devDependencies": {
         "@types/glob": "^7.2.0",
