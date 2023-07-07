@@ -102,7 +102,7 @@ function _runRuff(fp: string, buf: string, ...extraArgs: string[]): SpawnSyncRet
 
 export function getRuffDiagnosticsFromBuffer(fp: string, buf: string): Diagnostic[] {
     const outBuf = _runRuff(fp, buf);
-    if (outBuf.error) {
+    if (outBuf.error || outBuf.stderr.length > 0) {
         console.error(`Error running ruff: ${outBuf.stderr}`);
         return [];
     }
@@ -114,7 +114,7 @@ export function getRuffDiagnosticsFromBuffer(fp: string, buf: string): Diagnosti
 
 function ruffFix(fp: string, buf: string): string {
     const outBuf = _runRuff(fp, buf, '--fix-only');
-    if (outBuf.error) {
+    if (outBuf.error || outBuf.stderr.length > 0) {
         console.error(`Error running ruff: ${outBuf.stderr}`);
         return buf; // do nothing if we fail
     }
@@ -167,9 +167,11 @@ export function getCodeActions(fp: string, buf: string | null, diags: Diagnostic
                 newText: ruffFix(fp, buf),
             },
         ]);
-        actions.push(
-            CodeAction.create('Fix all automatically fixable errors', { changes }, CodeActionKind.SourceFixAll)
-        );
+        if (Object.keys(changes).length > 0) {
+            actions.push(
+                CodeAction.create('Fix all automatically fixable errors', { changes }, CodeActionKind.SourceFixAll)
+            );
+        }
     }
     return actions;
 }

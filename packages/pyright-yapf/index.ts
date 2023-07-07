@@ -10,7 +10,7 @@ function _runYapf(buf: string, indentWidth: number): SpawnSyncReturns<Buffer> {
 
 export function formatBufferWithYapf(buf: string, indentWidth: number): TextEdit[] {
     const outBuf = _runYapf(buf, indentWidth);
-    if (outBuf.error) {
+    if (outBuf.error || outBuf.stderr.length > 0) {
         console.error(`Error running yapf: ${outBuf.stderr}`);
         return [];
     }
