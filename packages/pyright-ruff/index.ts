@@ -151,23 +151,24 @@ export function getCodeActions(fp: string, buf: string | null, diags: Diagnostic
 
     // fix all code action, only added if we have track this file as opened (buf exists)
     if (buf) {
-        const changes = constructChanges([
-            {
-                // range may seem sus but this is what the official ruff lsp actually does https://github.com/astral-sh/ruff-lsp/blob/main/ruff_lsp/server.py#L735-L740
-                range: {
-                    start: {
-                        line: 0,
-                        character: 0,
+        const fixed = ruffFix(fp, buf)
+        if (buf !== fixed) {
+            const changes = constructChanges([
+                {
+                    // range may seem sus but this is what the official ruff lsp actually does https://github.com/astral-sh/ruff-lsp/blob/main/ruff_lsp/server.py#L735-L740
+                    range: {
+                        start: {
+                            line: 0,
+                            character: 0,
+                        },
+                        end: {
+                            line: uinteger.MAX_VALUE,
+                            character: 0,
+                        },
                     },
-                    end: {
-                        line: uinteger.MAX_VALUE,
-                        character: 0,
-                    },
+                    newText: fixed,
                 },
-                newText: ruffFix(fp, buf),
-            },
-        ]);
-        if (Object.keys(changes).length > 0) {
+            ]);
             actions.push(
                 CodeAction.create('Fix all automatically fixable errors', { changes }, CodeActionKind.SourceFixAll)
             );
