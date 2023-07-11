@@ -62,7 +62,7 @@ function convertEdit(edit: Edit): TextEdit {
 }
 
 const ErrorRegex = new RegExp(/^E\d{3}$/);
-const UNUSED_CODES = ['F401'] // unused import
+const UNUSED_CODES = ['F401']; // unused import
 function convertDiagnostic(diag: RuffDiagnostic): Diagnostic {
     let category = DiagnosticCategory.Warning;
     if (diag.code.match(ErrorRegex)) {
@@ -88,7 +88,7 @@ function convertDiagnostic(diag: RuffDiagnostic): Diagnostic {
 
 // see https://beta.ruff.rs/docs/rules/ for more info
 const INCLUDED_RUFF_CODES = ['E', 'W', 'F', 'I', 'B', 'C4', 'ARG', 'SIM'];
-const IGNORED_RUFF_CODES = ['W292'] // ignore no newline warnings
+const IGNORED_RUFF_CODES = ['W292']; // ignore no newline warnings
 function _runRuff(fp: string, buf: string, ...extraArgs: string[]): SpawnSyncReturns<Buffer> {
     const ruffSelectArgs = INCLUDED_RUFF_CODES.flatMap((code) => ['--select', code]);
     const ruffIgnoreArgs = IGNORED_RUFF_CODES.flatMap((code) => ['--ignore', code]);

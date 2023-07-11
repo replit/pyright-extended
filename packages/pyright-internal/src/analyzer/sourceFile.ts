@@ -428,7 +428,7 @@ export class SourceFile {
             if (fileStat.size > _maxSourceFileSize) {
                 this._console.error(
                     `File length of "${this._filePath}" is ${fileStat.size} ` +
-                    `which exceeds the maximum supported file size of ${_maxSourceFileSize}`
+                        `which exceeds the maximum supported file size of ${_maxSourceFileSize}`
                 );
                 throw new Error('File larger than max');
             }
@@ -1039,11 +1039,11 @@ export class SourceFile {
                 const diag = new Diagnostic(
                     category,
                     Localizer.Diagnostic.importCycleDetected() +
-                    '\n' +
-                    cirDep
-                        .getPaths()
-                        .map((path) => '  ' + path)
-                        .join('\n'),
+                        '\n' +
+                        cirDep
+                            .getPaths()
+                            .map((path) => '  ' + path)
+                            .join('\n'),
                     getEmptyRange()
                 );
                 diag.setRule(DiagnosticRule.reportImportCycles);

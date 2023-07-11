@@ -16,7 +16,7 @@
 // @filename: .src/test.py
 //// # pyright: reportWildcardImportFromLibrary=false
 //// [|/*imprt*/from testpkg import *|]
-//// 
+////
 //// [|/*marker1*/submod|].test_func()
 
 // @ts-ignore
