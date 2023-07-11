@@ -7,8 +7,6 @@
 // @filename: testpkg/__init__.py
 // @library: true
 //// __all__ = ["submod"]
-//// def foo():
-////    return
 
 // @filename: testpkg/submod.py
 // @library: true
@@ -17,11 +15,12 @@
 
 // @filename: .src/test.py
 //// # pyright: reportWildcardImportFromLibrary=false
-//// from testpkg import *
-//// submod.test_func()
-//// [|/*marker*/foo|]()
+//// [|/*imprt*/from testpkg import *|]
+//// 
+//// [|/*marker1*/submod|].test_func()
 
 // @ts-ignore
 await helper.verifyDiagnostics({
-    marker: { category: 'error', message: `"foo" is not defined` },
+    imprt: { category: 'warning', message: `\`from testpkg import *\` used; unable to detect undefined names` },
+    marker1: { category: 'warning', message: `\`submod\` may be undefined, or defined from star imports: \`testpkg\`` },
 });

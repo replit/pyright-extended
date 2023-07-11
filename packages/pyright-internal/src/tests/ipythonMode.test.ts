@@ -581,7 +581,7 @@ test('unused expression is error if not at end of cell', async () => {
 //// x = 1
     `;
 
-    verifyAnalysisDiagnosticCount(code, 1, DiagnosticRule.reportUnusedExpression);
+    verifyAnalysisDiagnosticCount(code, 1, `pyright[${DiagnosticRule.reportUnusedExpression}]`);
 });
 
 test('unused expression is error if within another statement', async () => {
@@ -592,7 +592,7 @@ test('unused expression is error if within another statement', async () => {
 ////     4[|/*marker*/|]
     `;
 
-    verifyAnalysisDiagnosticCount(code, 1, DiagnosticRule.reportUnusedExpression);
+    verifyAnalysisDiagnosticCount(code, 1, `pyright[${DiagnosticRule.reportUnusedExpression}]`);
 });
 
 function verifyAnalysisDiagnosticCount(code: string, expectedCount: number, expectedRule?: string) {

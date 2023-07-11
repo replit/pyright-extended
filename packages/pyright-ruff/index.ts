@@ -62,8 +62,14 @@ function convertEdit(edit: Edit): TextEdit {
 }
 
 const ErrorRegex = new RegExp(/^E\d{3}$/);
+const UNUSED_CODES = ['F401'] // unused import
 function convertDiagnostic(diag: RuffDiagnostic): Diagnostic {
-    const category = diag.code.match(ErrorRegex) ? DiagnosticCategory.Error : DiagnosticCategory.Warning;
+    let category = DiagnosticCategory.Warning;
+    if (diag.code.match(ErrorRegex)) {
+        category = DiagnosticCategory.Error;
+    } else if (UNUSED_CODES.includes(diag.code)) {
+        category = DiagnosticCategory.UnusedCode;
+    }
     const convertedDiag = new Diagnostic(category, diag.message, convertRange(diag.location, diag.end_location));
 
     if (diag.fix) {
@@ -81,14 +87,17 @@ function convertDiagnostic(diag: RuffDiagnostic): Diagnostic {
 }
 
 // see https://beta.ruff.rs/docs/rules/ for more info
-const RUFF_CODES = ['E', 'W', 'F', 'I', 'RUF', 'B', 'C4', 'ARG', 'SIM'];
+const INCLUDED_RUFF_CODES = ['E', 'W', 'F', 'I', 'B', 'C4', 'ARG', 'SIM'];
+const IGNORED_RUFF_CODES = ['W292'] // ignore no newline warnings
 function _runRuff(fp: string, buf: string, ...extraArgs: string[]): SpawnSyncReturns<Buffer> {
-    const ruffArgs = RUFF_CODES.flatMap((code) => ['--select', code]);
+    const ruffSelectArgs = INCLUDED_RUFF_CODES.flatMap((code) => ['--select', code]);
+    const ruffIgnoreArgs = IGNORED_RUFF_CODES.flatMap((code) => ['--ignore', code]);
     const args = [
         'check',
         '--stdin-filename',
         fp,
-        ...ruffArgs,
+        ...ruffSelectArgs,
+        ...ruffIgnoreArgs,
         '--quiet',
         '--format=json',
         '--force-exclude',

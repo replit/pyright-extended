@@ -3,17 +3,16 @@
 // @filename: test.py
 ////
 //// import [|/*marker1*/myLib.module|]
-//// import myLib.module1
-////
-//// from [|/*marker2*/myLib.module|] import foo
-//// from myLib import [|/*marker3*/module|]
-////
-//// from [|/*marker4*/.conflict.module2|] import foo2
-//// from .conflict import [|/*marker5*/module2|]
-////
 //// import [|/*marker6*/myLib.module|] as m1
+//// import myLib.module1
+//// from myLib import [|/*marker3*/module|]
 //// from myLib import [|/*marker7*/module|] as m2
+//// from [|/*marker2*/myLib.module|] import foo
+////
+//// from .conflict import [|/*marker5*/module2|]
 //// from .conflict import [|/*marker8*/module2|] as m3
+//// from [|/*marker4*/.conflict.module2|] import foo2
+////
 
 // @filename: myLib/module.pyi
 //// def foo(): ...

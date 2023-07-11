@@ -17,7 +17,7 @@ import { createFromRealFileSystem } from '../common/realFileSystem';
 import { parseAndGetTestState } from './harness/fourslash/testState';
 
 test('Empty', () => {
-    const filePath = combinePaths(process.cwd(), 'tests/samples/test_file1.py');
+    const filePath = combinePaths(process.cwd(), 'src/tests/samples/test_file1.py');
     const fs = createFromRealFileSystem();
     const sourceFile = new SourceFile(fs, filePath, '', false, false, false);
     const configOptions = new ConfigOptions(process.cwd());

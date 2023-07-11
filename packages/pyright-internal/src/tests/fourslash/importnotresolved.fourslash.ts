@@ -3,8 +3,8 @@
 // @filename: importnotresolved.py
 //// # these will not be resolve, no typestubs for django in typeshed
 ////
-//// import [|/*marker1*/notexistant|]
 //// import [|/*marker2*/django|]
+//// import [|/*marker1*/notexistant|]
 ////
 
 helper.verifyDiagnostics({

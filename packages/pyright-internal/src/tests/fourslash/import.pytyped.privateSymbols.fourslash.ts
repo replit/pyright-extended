@@ -25,19 +25,17 @@
 
 // @filename: .src/test1.py
 //// # pyright: reportPrivateUsage=true, reportPrivateImportUsage=true
-//// from testLib import one
-//// from testLib import [|/*marker1*/two|] as two_alias
-//// from testLib import [|/*marker2*/three|]
-//// from testLib import four
-//// from testLib import [|/*marker3*/_five|]
-//// from testLib import _six
 //// import testLib
-//// testLib.one
-//// testLib.[|/*marker4*/two|]
-//// testLib.[|/*marker5*/three|]
-//// testLib.four
-//// testLib.[|/*marker6*/_five|]
-//// testLib._six
+//// from testLib import [|/*marker3*/_five|], _six, four, one, [|/*marker2*/three|]
+//// from testLib import [|/*marker1*/two|] as two_alias
+////
+//// a = testLib.one
+//// b = testLib.[|/*marker4*/two|]
+//// c = testLib.[|/*marker5*/three|]
+//// d = testLib.four
+//// e = testLib.[|/*marker6*/_five|]
+//// f = testLib._six
+//// print(a + b + c + d + e + f)
 
 // @ts-ignore
 await helper.verifyDiagnostics({

@@ -250,7 +250,7 @@ test('re ordering cells', async () => {
         CancellationToken.None
     );
 
-    assert.strictEqual(diagnostics.length, 1);
+    assert.strictEqual(diagnostics.length, 0); // unused are ignored by pyright and ruff doesnt run on ipython files
 });
 
 function createServiceWithChainedSourceFiles(basePath: string, code: string) {
