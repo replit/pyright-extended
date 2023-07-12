@@ -910,7 +910,7 @@ test('ParamSpec19', () => {
 
 test('ParamSpec20', () => {
     const results = TestUtils.typeAnalyzeSampleFiles(['paramSpec20.py']);
-    TestUtils.validateResults(results, 6);
+    TestUtils.validateResults(results, 8);
 });
 
 test('ParamSpec21', () => {
@@ -1033,6 +1033,11 @@ test('ParamSpec44', () => {
     TestUtils.validateResults(results, 0);
 });
 
+test('ParamSpec45', () => {
+    const results = TestUtils.typeAnalyzeSampleFiles(['paramSpec45.py']);
+    TestUtils.validateResults(results, 0);
+});
+
 test('ClassVar1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['classVar1.py']);
 
@@ -1139,6 +1144,12 @@ test('Annotated1', () => {
     configOptions.defaultPythonVersion = PythonVersion.V3_9;
     const analysisResults39 = TestUtils.typeAnalyzeSampleFiles(['annotated1.py'], configOptions);
     TestUtils.validateResults(analysisResults39, 3);
+});
+
+test('Annotated2', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['annotated2.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
 });
 
 test('Circular1', () => {

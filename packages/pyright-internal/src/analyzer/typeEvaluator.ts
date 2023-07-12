@@ -1038,7 +1038,7 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
 
             case ParseNodeType.List:
             case ParseNodeType.Set: {
-                typeResult = getTypeOfListOrSet(node, inferenceContext);
+                typeResult = getTypeOfListOrSet(node, flags, inferenceContext);
                 break;
             }
 
@@ -1063,7 +1063,7 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
             }
 
             case ParseNodeType.Dictionary: {
-                typeResult = getTypeOfDictionary(node, inferenceContext);
+                typeResult = getTypeOfDictionary(node, flags, inferenceContext);
                 break;
             }
 
@@ -3003,10 +3003,8 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
                 addDiagnostic(
                     fileInfo.diagnosticRuleSet.reportGeneralTypeIssues,
                     DiagnosticRule.reportGeneralTypeIssues,
-                    Localizer.Diagnostic.typeAssignmentMismatch().format({
-                        sourceType: printType(type),
-                        destType: printType(declaredType),
-                    }) + diagAddendum.getString(),
+                    Localizer.Diagnostic.typeAssignmentMismatch().format(printSrcDestTypes(type, declaredType)) +
+                        diagAddendum.getString(),
                     srcExpression ?? nameNode,
                     diagAddendum.getEffectiveTextRange() ?? srcExpression ?? nameNode
                 );
@@ -7171,17 +7169,31 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
             let typeResult: TypeResultWithNode;
 
             // If it's a custom __class_getitem__, none of the arguments should be
-            // treated as types. If it's an Annotated[a, b, c], only the first index
-            // should be treated as a type. The others can be regular (non-type) objects.
-            if (options?.hasCustomClassGetItem || (options?.isAnnotatedClass && argIndex > 0)) {
+            // treated as types.
+            if (options?.hasCustomClassGetItem) {
+                adjFlags =
+                    EvaluatorFlags.DisallowParamSpec |
+                    EvaluatorFlags.DisallowTypeVarTuple |
+                    EvaluatorFlags.DoNotSpecialize |
+                    EvaluatorFlags.DisallowClassVar;
                 typeResult = {
-                    ...getTypeOfExpression(
-                        expr,
-                        EvaluatorFlags.DisallowParamSpec |
-                            EvaluatorFlags.DisallowTypeVarTuple |
-                            EvaluatorFlags.DoNotSpecialize |
-                            EvaluatorFlags.DisallowClassVar
-                    ),
+                    ...getTypeOfExpression(expr, adjFlags),
+                    node: expr,
+                };
+            } else if (options?.isAnnotatedClass && argIndex > 0) {
+                // If it's an Annotated[a, b, c], only the first index should be
+                // treated as a type.The others can be regular(non - type) objects.
+                adjFlags =
+                    EvaluatorFlags.DisallowParamSpec |
+                    EvaluatorFlags.DisallowTypeVarTuple |
+                    EvaluatorFlags.DoNotSpecialize |
+                    EvaluatorFlags.DisallowClassVar;
+                if (isAnnotationEvaluationPostponed(AnalyzerNodeInfo.getFileInfo(node))) {
+                    adjFlags |= EvaluatorFlags.AllowForwardReferences;
+                }
+
+                typeResult = {
+                    ...getTypeOfExpression(expr, adjFlags),
                     node: expr,
                 };
             } else {
@@ -7304,6 +7316,23 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
         flags: EvaluatorFlags,
         inferenceContext: InferenceContext | undefined
     ): TypeResult {
+        if (
+            (flags & EvaluatorFlags.ExpectingTypeAnnotation) !== 0 &&
+            node.parent?.nodeType !== ParseNodeType.Argument
+        ) {
+            // This is allowed inside of an index trailer, specifically
+            // to support Tuple[()], which is the documented way to annotate
+            // a zero-length tuple.
+            const diag = new DiagnosticAddendum();
+            diag.addMessage(Localizer.DiagnosticAddendum.useTupleInstead());
+            addDiagnostic(
+                AnalyzerNodeInfo.getFileInfo(node).diagnosticRuleSet.reportGeneralTypeIssues,
+                DiagnosticRule.reportGeneralTypeIssues,
+                Localizer.Diagnostic.tupleInAnnotation() + diag.getString(),
+                node
+            );
+        }
+
         if (
             (flags & EvaluatorFlags.ExpectingInstantiableType) !== 0 &&
             node.expressions.length === 0 &&
@@ -7528,11 +7557,29 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
     ): TypeResult {
         let baseTypeResult: TypeResult | undefined;
 
+        if (
+            (flags & EvaluatorFlags.ExpectingTypeAnnotation) !== 0 &&
+            node.leftExpression.nodeType === ParseNodeType.Name &&
+            node.leftExpression.value === 'type'
+        ) {
+            const diag = new DiagnosticAddendum();
+            diag.addMessage(Localizer.DiagnosticAddendum.useTypeInstead());
+            addDiagnostic(
+                AnalyzerNodeInfo.getFileInfo(node).diagnosticRuleSet.reportGeneralTypeIssues,
+                DiagnosticRule.reportGeneralTypeIssues,
+                Localizer.Diagnostic.typeCallNotAllowed() + diag.getString(),
+                node
+            );
+        }
+
         // Handle immediate calls of lambdas specially.
         if (node.leftExpression.nodeType === ParseNodeType.Lambda) {
             baseTypeResult = getTypeOfLambdaForCall(node, inferenceContext);
         } else {
-            baseTypeResult = getTypeOfExpression(node.leftExpression, EvaluatorFlags.DoNotSpecialize);
+            baseTypeResult = getTypeOfExpression(
+                node.leftExpression,
+                EvaluatorFlags.DoNotSpecialize | (flags & EvaluatorFlags.AllowForwardReferences)
+            );
         }
 
         const argList = node.arguments.map((arg) => {
@@ -9367,15 +9414,29 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
                 // Does this function define the param spec, or is it an inner
                 // function nested within another function that defines the param
                 // spec? We need to handle these two cases differently.
+                const paramSpecScopeId = varArgListParam.type.scopeId;
                 if (
-                    varArgListParam.type.scopeId === typeResult.type.details.typeVarScopeId ||
-                    varArgListParam.type.scopeId === typeResult.type.details.constructorTypeVarScopeId
+                    paramSpecScopeId === typeResult.type.details.typeVarScopeId ||
+                    paramSpecScopeId === typeResult.type.details.constructorTypeVarScopeId
                 ) {
                     paramSpecArgList = [];
                     paramSpecTarget = TypeVarType.cloneForParamSpecAccess(varArgListParam.type, /* access */ undefined);
                 } else {
                     positionalOnlyLimitIndex = varArgListParamIndex;
                 }
+            }
+        } else if (typeResult.type.details.paramSpec) {
+            const paramSpecScopeId = typeResult.type.details.paramSpec.scopeId;
+            if (
+                paramSpecScopeId === typeResult.type.details.typeVarScopeId ||
+                paramSpecScopeId === typeResult.type.details.constructorTypeVarScopeId
+            ) {
+                hasParamSpecArgsKwargs = true;
+                paramSpecArgList = [];
+                paramSpecTarget = TypeVarType.cloneForParamSpecAccess(
+                    typeResult.type.details.paramSpec,
+                    /* access */ undefined
+                );
             }
         }
 
@@ -9994,27 +10055,25 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
                                 });
                                 trySetActive(argList[argIndex], paramDetails.params[paramInfoIndex].param);
                             }
+                        } else if (paramSpecArgList) {
+                            paramSpecArgList.push(argList[argIndex]);
                         } else if (paramDetails.kwargsIndex !== undefined) {
-                            if (paramSpecArgList) {
-                                paramSpecArgList.push(argList[argIndex]);
-                            } else {
-                                const paramType = paramDetails.params[paramDetails.kwargsIndex].type;
-                                validateArgTypeParams.push({
-                                    paramCategory: ParameterCategory.KwargsDict,
-                                    paramType,
-                                    requiresTypeVarMatching: requiresSpecialization(paramType),
-                                    argument: argList[argIndex],
-                                    errorNode: argList[argIndex].valueExpression ?? errorNode,
-                                    paramName: paramNameValue,
-                                });
+                            const paramType = paramDetails.params[paramDetails.kwargsIndex].type;
+                            validateArgTypeParams.push({
+                                paramCategory: ParameterCategory.KwargsDict,
+                                paramType,
+                                requiresTypeVarMatching: requiresSpecialization(paramType),
+                                argument: argList[argIndex],
+                                errorNode: argList[argIndex].valueExpression ?? errorNode,
+                                paramName: paramNameValue,
+                            });
 
-                                // Remember that this parameter has already received a value.
-                                paramMap.set(paramNameValue, {
-                                    argsNeeded: 1,
-                                    argsReceived: 1,
-                                    isPositionalOnly: false,
-                                });
-                            }
+                            // Remember that this parameter has already received a value.
+                            paramMap.set(paramNameValue, {
+                                argsNeeded: 1,
+                                argsReceived: 1,
+                                isPositionalOnly: false,
+                            });
                             assert(
                                 paramDetails.params[paramDetails.kwargsIndex],
                                 'paramDetails.kwargsIndex params entry is undefined'
@@ -10030,20 +10089,24 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
                             reportedArgError = true;
                         }
                     } else if (argList[argIndex].argumentCategory === ArgumentCategory.Simple) {
-                        if (!isDiagnosticSuppressedForNode(errorNode)) {
-                            const fileInfo = AnalyzerNodeInfo.getFileInfo(errorNode);
-                            addDiagnostic(
-                                fileInfo.diagnosticRuleSet.reportGeneralTypeIssues,
-                                DiagnosticRule.reportGeneralTypeIssues,
-                                positionParamLimitIndex === 1
-                                    ? Localizer.Diagnostic.argPositionalExpectedOne()
-                                    : Localizer.Diagnostic.argPositionalExpectedCount().format({
-                                          expected: positionParamLimitIndex,
-                                      }),
-                                argList[argIndex].valueExpression || errorNode
-                            );
+                        if (paramSpecArgList) {
+                            paramSpecArgList.push(argList[argIndex]);
+                        } else {
+                            if (!isDiagnosticSuppressedForNode(errorNode)) {
+                                const fileInfo = AnalyzerNodeInfo.getFileInfo(errorNode);
+                                addDiagnostic(
+                                    fileInfo.diagnosticRuleSet.reportGeneralTypeIssues,
+                                    DiagnosticRule.reportGeneralTypeIssues,
+                                    positionParamLimitIndex === 1
+                                        ? Localizer.Diagnostic.argPositionalExpectedOne()
+                                        : Localizer.Diagnostic.argPositionalExpectedCount().format({
+                                              expected: positionParamLimitIndex,
+                                          }),
+                                    argList[argIndex].valueExpression || errorNode
+                                );
+                            }
+                            reportedArgError = true;
                         }
-                        reportedArgError = true;
                     } else if (argList[argIndex].argumentCategory === ArgumentCategory.UnpackedList) {
                         // Handle the case where a *args: P.args is passed as an argument to
                         // a function that accepts a ParamSpec.
@@ -10952,7 +11015,7 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
 
         const liveTypeVarScopes = ParseTreeUtils.getTypeVarScopesForNode(errorNode);
 
-        const srcTypeVarContext = new TypeVarContext(paramSpecType.details.typeVarScopeId);
+        const srcTypeVarContext = new TypeVarContext(getTypeVarScopeIds(paramSpecType));
         let reportedArgError = false;
 
         // Build a map of all named parameters.
@@ -12235,7 +12298,25 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
         return returnType;
     }
 
-    function getTypeOfDictionary(node: DictionaryNode, inferenceContext: InferenceContext | undefined): TypeResult {
+    function getTypeOfDictionary(
+        node: DictionaryNode,
+        flags: EvaluatorFlags,
+        inferenceContext: InferenceContext | undefined
+    ): TypeResult {
+        if (
+            (flags & EvaluatorFlags.ExpectingTypeAnnotation) !== 0 &&
+            node.parent?.nodeType !== ParseNodeType.Argument
+        ) {
+            const diag = new DiagnosticAddendum();
+            diag.addMessage(Localizer.DiagnosticAddendum.useDictInstead());
+            addDiagnostic(
+                AnalyzerNodeInfo.getFileInfo(node).diagnosticRuleSet.reportGeneralTypeIssues,
+                DiagnosticRule.reportGeneralTypeIssues,
+                Localizer.Diagnostic.dictInAnnotation() + diag.getString(),
+                node
+            );
+        }
+
         // If the expected type is a union, analyze for each of the subtypes
         // to find one that matches.
         let effectiveExpectedType = inferenceContext?.expectedType;
@@ -12555,12 +12636,15 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
                 }
 
                 if (entryInferenceContext && !valueTypeResult.typeErrors) {
-                    valueTypeResult.type =
-                        inferTypeArgFromExpectedEntryType(
-                            entryInferenceContext,
-                            [valueTypeResult.type],
-                            !isValueTypeInvariant
-                        ) ?? valueTypeResult.type;
+                    const fromExpectedType = inferTypeArgFromExpectedEntryType(
+                        entryInferenceContext,
+                        [valueTypeResult.type],
+                        !isValueTypeInvariant
+                    );
+
+                    if (fromExpectedType) {
+                        valueTypeResult = { ...valueTypeResult, type: fromExpectedType };
+                    }
                 }
 
                 if (expectedDiagAddendum && valueTypeResult.expectedTypeDiagAddendum) {
@@ -12593,19 +12677,22 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
                 }
 
                 const entryInferenceContext = makeInferenceContext(expectedType);
-                const unexpandedTypeResult = getTypeOfExpression(
+                let unexpandedTypeResult = getTypeOfExpression(
                     entryNode.expandExpression,
                     /* flags */ undefined,
                     entryInferenceContext
                 );
 
                 if (entryInferenceContext && !unexpandedTypeResult.typeErrors) {
-                    unexpandedTypeResult.type =
-                        inferTypeArgFromExpectedEntryType(
-                            entryInferenceContext,
-                            [unexpandedTypeResult.type],
-                            !isValueTypeInvariant
-                        ) ?? unexpandedTypeResult.type;
+                    const fromExpectedType = inferTypeArgFromExpectedEntryType(
+                        entryInferenceContext,
+                        [unexpandedTypeResult.type],
+                        !isValueTypeInvariant
+                    );
+
+                    if (fromExpectedType) {
+                        unexpandedTypeResult = { ...unexpandedTypeResult, type: fromExpectedType };
+                    }
                 }
 
                 if (unexpandedTypeResult.isIncomplete) {
@@ -12708,7 +12795,26 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
         return isIncomplete;
     }
 
-    function getTypeOfListOrSet(node: ListNode | SetNode, inferenceContext: InferenceContext | undefined): TypeResult {
+    function getTypeOfListOrSet(
+        node: ListNode | SetNode,
+        flags: EvaluatorFlags,
+        inferenceContext: InferenceContext | undefined
+    ): TypeResult {
+        if (
+            (flags & EvaluatorFlags.ExpectingTypeAnnotation) !== 0 &&
+            node.nodeType === ParseNodeType.List &&
+            node.parent?.nodeType !== ParseNodeType.Argument
+        ) {
+            const diag = new DiagnosticAddendum();
+            diag.addMessage(Localizer.DiagnosticAddendum.useListInstead());
+            addDiagnostic(
+                AnalyzerNodeInfo.getFileInfo(node).diagnosticRuleSet.reportGeneralTypeIssues,
+                DiagnosticRule.reportGeneralTypeIssues,
+                Localizer.Diagnostic.listInAnnotation() + diag.getString(),
+                node
+            );
+        }
+
         // If the expected type is a union, recursively call for each of the subtypes
         // to find one that matches.
         let effectiveExpectedType = inferenceContext?.expectedType;
@@ -16828,6 +16934,7 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
 
         // Note that the inferred type, once lazily computed, needs to wrap the
         // resulting type in an awaitable.
+        functionType.details.flags |= FunctionTypeFlags.WrapReturnTypeInAwait;
         awaitableFunctionType.details.flags |= FunctionTypeFlags.WrapReturnTypeInAwait;
 
         return awaitableFunctionType;
@@ -21534,10 +21641,7 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
                 }
 
                 diag?.addMessage(
-                    Localizer.DiagnosticAddendum.typeAssignmentMismatch().format({
-                        sourceType: printType(srcType),
-                        destType: printType(destType),
-                    })
+                    Localizer.DiagnosticAddendum.typeAssignmentMismatch().format(printSrcDestTypes(srcType, destType))
                 );
                 return false;
             }
@@ -21698,10 +21802,9 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
                     }
 
                     diag?.addMessage(
-                        Localizer.DiagnosticAddendum.typeAssignmentMismatch().format({
-                            sourceType: printType(srcType),
-                            destType: printType(destType),
-                        })
+                        Localizer.DiagnosticAddendum.typeAssignmentMismatch().format(
+                            printSrcDestTypes(srcType, destType)
+                        )
                     );
                     return false;
                 }
@@ -21744,10 +21847,7 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
                 }
 
                 diag?.addMessage(
-                    Localizer.DiagnosticAddendum.typeAssignmentMismatch().format({
-                        sourceType: printType(srcType),
-                        destType: printType(destType),
-                    })
+                    Localizer.DiagnosticAddendum.typeAssignmentMismatch().format(printSrcDestTypes(srcType, destType))
                 );
                 return false;
             }
@@ -22132,10 +22232,7 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
         }
 
         diag?.addMessage(
-            Localizer.DiagnosticAddendum.typeAssignmentMismatch().format({
-                sourceType: printType(srcType),
-                destType: printType(destType),
-            })
+            Localizer.DiagnosticAddendum.typeAssignmentMismatch().format(printSrcDestTypes(srcType, destType))
         );
 
         return false;
@@ -22376,10 +22473,7 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
 
         if (isIncompatible) {
             diag?.addMessage(
-                Localizer.DiagnosticAddendum.typeAssignmentMismatch().format({
-                    sourceType: printType(srcType),
-                    destType: printType(destType),
-                })
+                Localizer.DiagnosticAddendum.typeAssignmentMismatch().format(printSrcDestTypes(srcType, destType))
             );
             return false;
         }
@@ -22492,10 +22586,7 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
 
             if (isIncompatible) {
                 diag?.addMessage(
-                    Localizer.DiagnosticAddendum.typeAssignmentMismatch().format({
-                        sourceType: printType(srcType),
-                        destType: printType(destType),
-                    })
+                    Localizer.DiagnosticAddendum.typeAssignmentMismatch().format(printSrcDestTypes(srcType, destType))
                 );
                 return false;
             }
@@ -22618,10 +22709,7 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
         if (!foundMatch) {
             if (diag && diagAddendum) {
                 diag.addMessage(
-                    Localizer.DiagnosticAddendum.typeAssignmentMismatch().format({
-                        sourceType: printType(srcType),
-                        destType: printType(destType),
-                    })
+                    Localizer.DiagnosticAddendum.typeAssignmentMismatch().format(printSrcDestTypes(srcType, destType))
                 );
                 diag.addAddendum(diagAddendum);
             }
@@ -24782,6 +24870,26 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
         return TypePrinter.printFunctionParts(type, flags, getFunctionEffectiveReturnType);
     }
 
+    // Prints two types and determines whether they need to be output in
+    // fully-qualified form for disambiguation.
+    function printSrcDestTypes(srcType: Type, destType: Type): { sourceType: string; destType: string } {
+        const simpleSrcType = printType(srcType);
+        const simpleDestType = printType(destType);
+
+        if (simpleSrcType !== simpleDestType) {
+            return { sourceType: simpleSrcType, destType: simpleDestType };
+        }
+
+        const fullSrcType = printType(srcType, { useFullyQualifiedNames: true });
+        const fullDestType = printType(destType, { useFullyQualifiedNames: true });
+
+        if (fullSrcType !== fullDestType) {
+            return { sourceType: fullSrcType, destType: fullDestType };
+        }
+
+        return { sourceType: simpleSrcType, destType: simpleDestType };
+    }
+
     function printType(type: Type, options?: PrintTypeOptions): string {
         let flags = evaluatorOptions.printTypeFlags;
 
@@ -24802,6 +24910,9 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
         }
         if (options?.omitTypeArgumentsIfUnknown) {
             flags |= TypePrinter.PrintTypeFlags.OmitTypeArgumentsIfUnknown;
+        }
+        if (options?.useFullyQualifiedNames) {
+            flags |= TypePrinter.PrintTypeFlags.UseFullyQualifiedNames;
         }
 
         return TypePrinter.printType(type, flags, getFunctionEffectiveReturnType);
@@ -24986,6 +25097,7 @@ export function createTypeEvaluator(importLookup: ImportLookup, evaluatorOptions
         addDiagnostic,
         addDiagnosticForTextRange,
         printType,
+        printSrcDestTypes,
         printFunctionParts,
         getTypeCacheEntryCount,
         disposeEvaluator,
