@@ -150,7 +150,7 @@ class EggZipOpenFS extends ZipOpenFS {
                         // below; ZipOpenFS already manages their lifetimes and we're very likely to
                         // immediately call back into the FS to obtain info from the zip anyway.
                         // eslint-disable-next-line @typescript-eslint/no-empty-function
-                        this.getZipSync(filePath, () => { });
+                        this.getZipSync(filePath, () => {});
                     } catch {
                         this.notZip.add(filePath);
                         continue;
@@ -209,7 +209,7 @@ const yarnFS = new YarnFS();
 class RealFileSystem implements FileSystem {
     private _tmpdir?: tmp.DirResult;
 
-    constructor(private _fileWatcherProvider: FileWatcherProvider, private _console: ConsoleInterface) { }
+    constructor(private _fileWatcherProvider: FileWatcherProvider, private _console: ConsoleInterface) {}
 
     existsSync(path: string) {
         try {
@@ -440,9 +440,9 @@ export class WorkspaceFileWatcherProvider implements FileWatcherProvider, FileWa
     }
 
     trackFsChanges() {
-        this._fileWatchers.forEach(watcher => {
+        this._fileWatchers.forEach((watcher) => {
             this._chokidar.createFileWatcher(watcher.workspacePaths, watcher.eventHandler);
-        })
+        });
     }
 
     onFileChange(eventType: FileWatcherEventType, filePath: string): void {

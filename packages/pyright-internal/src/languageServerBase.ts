@@ -1414,7 +1414,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
     private _setupFileWatcher() {
         if (!this.client.hasWatchFileCapability) {
             // we won't get notifs from client for changes, let's spawn a watcher to track our own
-            this.serverOptions.fileWatcherProvider?.trackFsChanges?.()
+            this.serverOptions.fileWatcherProvider?.trackFsChanges?.();
             return;
         }
 
