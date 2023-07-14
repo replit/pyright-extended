@@ -33,6 +33,7 @@ import { Host } from './common/host';
 import { resolvePaths } from './common/pathUtils';
 import { ProgressReporter } from './common/progressReporter';
 import { WorkspaceFileWatcherProvider, createFromRealFileSystem } from './common/realFileSystem';
+import { ChokidarFileWatcherProvider } from './common/chokidarFileWatcherProvider';
 import { LanguageServerBase, ServerSettings } from './languageServerBase';
 import { CodeActionProvider } from './languageService/codeActionProvider';
 import { Workspace } from './workspaceFactory';
@@ -52,7 +53,7 @@ export class PyrightServer extends LanguageServerBase {
         const rootDirectory = (global as any).__rootDirectory || __dirname;
 
         const console = new ConsoleWithLogLevel(connection.console);
-        const fileWatcherProvider = new WorkspaceFileWatcherProvider();
+        const fileWatcherProvider = new ChokidarFileWatcherProvider();
         const fileSystem = createFromRealFileSystem(console, fileWatcherProvider);
 
         super(
