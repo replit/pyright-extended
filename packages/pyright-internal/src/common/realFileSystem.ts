@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as tmp from 'tmp';
 import { URI } from 'vscode-uri';
 import { isMainThread } from 'worker_threads';
+import { ChokidarFileWatcherProvider } from './chokidarFileWatcherProvider';
 
 import { ConsoleInterface, NullConsole } from './console';
 import {
@@ -149,7 +150,7 @@ class EggZipOpenFS extends ZipOpenFS {
                         // below; ZipOpenFS already manages their lifetimes and we're very likely to
                         // immediately call back into the FS to obtain info from the zip anyway.
                         // eslint-disable-next-line @typescript-eslint/no-empty-function
-                        this.getZipSync(filePath, () => {});
+                        this.getZipSync(filePath, () => { });
                     } catch {
                         this.notZip.add(filePath);
                         continue;
@@ -208,7 +209,7 @@ const yarnFS = new YarnFS();
 class RealFileSystem implements FileSystem {
     private _tmpdir?: tmp.DirResult;
 
-    constructor(private _fileWatcherProvider: FileWatcherProvider, private _console: ConsoleInterface) {}
+    constructor(private _fileWatcherProvider: FileWatcherProvider, private _console: ConsoleInterface) { }
 
     existsSync(path: string) {
         try {
@@ -419,6 +420,7 @@ interface WorkspaceFileWatcher extends FileWatcher {
 
 export class WorkspaceFileWatcherProvider implements FileWatcherProvider, FileWatcherHandler {
     private _fileWatchers: WorkspaceFileWatcher[] = [];
+    private _chokidar = new ChokidarFileWatcherProvider();
 
     createFileWatcher(workspacePaths: string[], listener: FileWatcherEventHandler): FileWatcher {
         const self = this;
@@ -435,6 +437,12 @@ export class WorkspaceFileWatcherProvider implements FileWatcherProvider, FileWa
         self._fileWatchers.push(fileWatcher);
 
         return fileWatcher;
+    }
+
+    trackFsChanges() {
+        this._fileWatchers.forEach(watcher => {
+            this._chokidar.createFileWatcher(watcher.workspacePaths, watcher.eventHandler);
+        })
     }
 
     onFileChange(eventType: FileWatcherEventType, filePath: string): void {

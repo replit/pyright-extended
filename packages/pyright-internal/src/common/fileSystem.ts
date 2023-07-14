@@ -24,6 +24,7 @@ export interface FileWatcherHandler {
 
 export interface FileWatcherProvider {
     createFileWatcher(paths: string[], listener: FileWatcherEventHandler): FileWatcher;
+    trackFsChanges?(): void;
 }
 
 export interface Stats {

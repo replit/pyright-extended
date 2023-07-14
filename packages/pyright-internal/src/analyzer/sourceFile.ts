@@ -789,7 +789,33 @@ export class SourceFile {
                     this._writableData.isCheckingNeeded = false;
 
                     const fileInfo = AnalyzerNodeInfo.getFileInfo(this._writableData.parseResults!.parseTree)!;
-                    this._writableData.checkerDiagnostics = fileInfo.diagnosticSink.fetchAndClear();
+                    let diagList = fileInfo.diagnosticSink.fetchAndClear();
+
+                    // default to filter out unused code, ruff is responsible for this
+                    diagList = diagList.filter((diag) => diag.category !== DiagnosticCategory.UnusedCode);
+
+                    // map to indicate this is a pyrite diagnostic
+                    diagList = diagList.map((diag) => {
+                        const rule = diag.getRule();
+                        const ruleName = rule && !rule.startsWith('pyright') ? `pyright[${rule}]` : 'pyright';
+                        diag.setRule(ruleName);
+                        return diag;
+                    });
+
+                    const fileContents = this.getOpenFileContents();
+                    if (fileContents && this._ipythonMode === IPythonMode.None) {
+                        const diags = getRuffDiagnosticsFromBuffer(this._realFilePath, fileContents);
+                        diagList.push(
+                            ...diags.map((diag) => {
+                                const rule = diag.getRule();
+                                const ruleName = rule && !rule.startsWith('ruff') ? `ruff[${rule}]` : 'ruff';
+                                diag.setRule(ruleName);
+                                return diag;
+                            })
+                        );
+                    }
+
+                    this._writableData.checkerDiagnostics = diagList;
                     this._writableData.checkTime = checkDuration.getDurationInMilliseconds();
                 });
             } catch (e: any) {
@@ -1093,30 +1119,6 @@ export class SourceFile {
                     diag.category === DiagnosticCategory.UnusedCode ||
                     diag.category === DiagnosticCategory.UnreachableCode ||
                     diag.category === DiagnosticCategory.Deprecated
-            );
-        }
-
-        // default to filter out unused code, ruff is responsible for this
-        diagList = diagList.filter((diag) => diag.category !== DiagnosticCategory.UnusedCode);
-
-        // map to indicate this is a pyrite diagnostic
-        diagList = diagList.map((diag) => {
-            const rule = diag.getRule();
-            const ruleName = rule && !rule.startsWith('pyright') ? `pyright[${rule}]` : 'pyright';
-            diag.setRule(ruleName);
-            return diag;
-        });
-
-        const fileContents = this.getOpenFileContents();
-        if (fileContents && this._ipythonMode === IPythonMode.None) {
-            const diags = getRuffDiagnosticsFromBuffer(this._realFilePath, fileContents);
-            diagList.push(
-                ...diags.map((diag) => {
-                    const rule = diag.getRule();
-                    const ruleName = rule && !rule.startsWith('ruff') ? `ruff[${rule}]` : 'ruff';
-                    diag.setRule(ruleName);
-                    return diag;
-                })
             );
         }
 

@@ -103,7 +103,7 @@ import {
 import { DiagnosticRule } from './common/diagnosticRules';
 import { FileDiagnostics } from './common/diagnosticSink';
 import { Extensions } from './common/extensibility';
-import { FileSystem, FileWatcherEventType, FileWatcherHandler } from './common/fileSystem';
+import { FileSystem, FileWatcherEventType, FileWatcherHandler, FileWatcherProvider } from './common/fileSystem';
 import { Host } from './common/host';
 import { fromLSPAny } from './common/lspUtils';
 import { convertPathToUri, deduplicateFolders, getDirectoryPath, getFileName, isFile } from './common/pathUtils';
@@ -193,6 +193,7 @@ export interface ServerOptions {
     cancellationProvider: CancellationProvider;
     fileSystem: FileSystem;
     fileWatcherHandler: FileWatcherHandler;
+    fileWatcherProvider?: FileWatcherProvider;
     maxAnalysisTimeInForeground?: MaxAnalysisTime;
     disableChecker?: boolean;
     supportedCommands?: string[];
@@ -1412,6 +1413,8 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
 
     private _setupFileWatcher() {
         if (!this.client.hasWatchFileCapability) {
+            // we won't get notifs from client for changes, let's spawn a watcher to track our own
+            this.serverOptions.fileWatcherProvider?.trackFsChanges?.()
             return;
         }
 
