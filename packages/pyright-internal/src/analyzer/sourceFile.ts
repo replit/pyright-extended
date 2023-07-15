@@ -791,17 +791,7 @@ export class SourceFile {
                     const fileInfo = AnalyzerNodeInfo.getFileInfo(this._writableData.parseResults!.parseTree)!;
                     let diagList = fileInfo.diagnosticSink.fetchAndClear();
 
-                    // default to filter out unused code, ruff is responsible for this
-                    diagList = diagList.filter((diag) => diag.category !== DiagnosticCategory.UnusedCode);
-
-                    // map to indicate this is a pyrite diagnostic
-                    diagList = diagList.map((diag) => {
-                        const rule = diag.getRule();
-                        const ruleName = rule && !rule.startsWith('pyright') ? `pyright[${rule}]` : 'pyright';
-                        diag.setRule(ruleName);
-                        return diag;
-                    });
-
+                    // get ruff diagnostics
                     const fileContents = this.getOpenFileContents();
                     if (fileContents && this._ipythonMode === IPythonMode.None) {
                         const diags = getRuffDiagnosticsFromBuffer(this._realFilePath, fileContents);
@@ -1121,6 +1111,25 @@ export class SourceFile {
                     diag.category === DiagnosticCategory.Deprecated
             );
         }
+
+        // map to indicate this is a pyrite diagnostic
+        diagList = diagList.map((diag) => {
+            const rule = diag.getRule();
+            if (rule?.startsWith('ruff')) {
+              return diag;
+            }
+
+            const ruleName = rule && !rule.startsWith('pyright') ? `pyright[${rule}]` : 'pyright';
+            diag.setRule(ruleName);
+            return diag;
+        });
+        
+        // default to filter out unused code, ruff is responsible for this
+        diagList = diagList.filter((diag) => {
+          const rule = diag.getRule();
+          // filter out if its unusedcode warning from pyright
+          return !(rule?.startsWith("pyright") && diag.category === DiagnosticCategory.UnusedCode)
+        });
 
         this._writableData.accumulatedDiagnostics = diagList;
     }
