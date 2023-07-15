@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as tmp from 'tmp';
 import { URI } from 'vscode-uri';
 import { isMainThread } from 'worker_threads';
+import { ChokidarFileWatcherProvider } from './chokidarFileWatcherProvider';
 
 import { ConsoleInterface, NullConsole } from './console';
 import {
@@ -419,6 +420,7 @@ interface WorkspaceFileWatcher extends FileWatcher {
 
 export class WorkspaceFileWatcherProvider implements FileWatcherProvider, FileWatcherHandler {
     private _fileWatchers: WorkspaceFileWatcher[] = [];
+    private _chokidar = new ChokidarFileWatcherProvider();
 
     createFileWatcher(workspacePaths: string[], listener: FileWatcherEventHandler): FileWatcher {
         const self = this;
@@ -435,6 +437,12 @@ export class WorkspaceFileWatcherProvider implements FileWatcherProvider, FileWa
         self._fileWatchers.push(fileWatcher);
 
         return fileWatcher;
+    }
+
+    trackFsChanges() {
+        this._fileWatchers.forEach((watcher) => {
+            this._chokidar.createFileWatcher(watcher.workspacePaths, watcher.eventHandler);
+        });
     }
 
     onFileChange(eventType: FileWatcherEventType, filePath: string): void {
