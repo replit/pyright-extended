@@ -1116,19 +1116,19 @@ export class SourceFile {
         diagList = diagList.map((diag) => {
             const rule = diag.getRule();
             if (rule?.startsWith('ruff')) {
-              return diag;
+                return diag;
             }
 
             const ruleName = rule && !rule.startsWith('pyright') ? `pyright[${rule}]` : 'pyright';
             diag.setRule(ruleName);
             return diag;
         });
-        
+
         // default to filter out unused code, ruff is responsible for this
         diagList = diagList.filter((diag) => {
-          const rule = diag.getRule();
-          // filter out if its unusedcode warning from pyright
-          return !(rule?.startsWith("pyright") && diag.category === DiagnosticCategory.UnusedCode)
+            const rule = diag.getRule();
+            // filter out if its unusedcode warning from pyright
+            return !(rule?.startsWith('pyright') && diag.category === DiagnosticCategory.UnusedCode);
         });
 
         this._writableData.accumulatedDiagnostics = diagList;
