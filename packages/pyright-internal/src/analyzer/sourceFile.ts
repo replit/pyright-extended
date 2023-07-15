@@ -789,7 +789,7 @@ export class SourceFile {
                     this._writableData.isCheckingNeeded = false;
 
                     const fileInfo = AnalyzerNodeInfo.getFileInfo(this._writableData.parseResults!.parseTree)!;
-                    let diagList = fileInfo.diagnosticSink.fetchAndClear();
+                    const diagList = fileInfo.diagnosticSink.fetchAndClear();
 
                     // get ruff diagnostics
                     const fileContents = this.getOpenFileContents();
