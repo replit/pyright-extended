@@ -298,7 +298,7 @@ export namespace VSDiagnosticRank {
     export const Lowest = 500;
 }
 
-export abstract class LanguageServerBase implements LanguageServerInterface {
+export abstract class LanguageServerBase implements LanguageServerInterface, Disposable {
     // We support running only one "find all reference" at a time.
     private _pendingFindAllRefsCancellationSource: AbstractCancellationTokenSource | undefined;
 
@@ -312,6 +312,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
     private _lastFileWatcherRegistration: Disposable | undefined;
 
     private _initialized = false;
+    private _workspaceFoldersChangedDisposable: Disposable | undefined;
 
     // Global root path - the basis for all global settings.
     rootPath = '';
@@ -406,6 +407,12 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
 
     get supportAdvancedEdits(): boolean {
         return this.client.hasDocumentChangeCapability && this.client.hasDocumentAnnotationCapability;
+    }
+
+    dispose() {
+        this.workspaceFactory.clear();
+        this.openFileMap.clear();
+        this._workspaceFoldersChangedDisposable?.dispose();
     }
 
     // Convert uri to path
@@ -782,7 +789,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
             return;
         }
 
-        this.connection.workspace.onDidChangeWorkspaceFolders((event) => {
+        this._workspaceFoldersChangedDisposable = this.connection.workspace.onDidChangeWorkspaceFolders((event) => {
             this.workspaceFactory.handleWorkspaceFoldersChanged(event);
             this._setupFileWatcher();
         });
@@ -900,7 +907,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
         // VS Code doesn't support cancellation of "final all references".
         // We provide a progress bar a cancellation button so the user can cancel
         // any long-running actions.
-        const progress = await this._getProgressReporter(
+        const progress = await this.getProgressReporter(
             workDoneReporter,
             Localizer.CodeAction.findingReferences(),
             token
@@ -1190,7 +1197,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
         if (doc) {
             // We shouldn't get an open text document request for an already-opened doc.
             this.console.error(`Received redundant open text document command for ${filePath}`);
-            doc = TextDocument.update(doc, [{ text: params.textDocument.text }], params.textDocument.version);
+            TextDocument.update(doc, [{ text: params.textDocument.text }], params.textDocument.version);
         } else {
             doc = TextDocument.create(filePath, 'python', params.textDocument.version, params.textDocument.text);
         }
@@ -1212,15 +1219,14 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
             return;
         }
 
-        let doc = this.openFileMap.get(filePath);
+        const doc = this.openFileMap.get(filePath);
         if (!doc) {
             // We shouldn't get a change text request for a closed doc.
             this.console.error(`Received change text document command for closed file ${filePath}`);
             return;
         }
 
-        doc = TextDocument.update(doc, params.contentChanges, params.textDocument.version);
-        this.openFileMap.set(filePath, doc);
+        TextDocument.update(doc, params.contentChanges, params.textDocument.version);
         const newContents = doc.getText();
 
         // Send this change to all the workspaces that might contain this file.
@@ -1284,7 +1290,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
 
         if (this.isLongRunningCommand(params.command)) {
             // Create a progress dialog for long-running commands.
-            const progress = await this._getProgressReporter(reporter, Localizer.CodeAction.executingCommand(), token);
+            const progress = await this.getProgressReporter(reporter, Localizer.CodeAction.executingCommand(), token);
 
             const source = progress.source;
             this._pendingCommandCancellationSource = source;
@@ -1411,6 +1417,29 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
         return canNavigateToFile(fs, path);
     }
 
+    protected async getProgressReporter(reporter: WorkDoneProgressReporter, title: string, token: CancellationToken) {
+        // This is a bit ugly, but we need to determine whether the provided reporter
+        // is an actual client-side progress reporter or a dummy (null) progress reporter
+        // created by the LSP library. If it's the latter, we'll create a server-initiated
+        // progress reporter.
+        if (reporter.constructor !== nullProgressReporter.constructor) {
+            return { reporter: reporter, source: CancelAfter(this.serverOptions.cancellationProvider, token) };
+        }
+
+        const serverInitiatedReporter = await this.connection.window.createWorkDoneProgress();
+        serverInitiatedReporter.begin(
+            title,
+            /* percentage */ undefined,
+            /* message */ undefined,
+            /* cancellable */ true
+        );
+
+        return {
+            reporter: serverInitiatedReporter,
+            source: CancelAfter(this.serverOptions.cancellationProvider, token, serverInitiatedReporter.token),
+        };
+    }
+
     private _setupFileWatcher() {
         if (!this.client.hasWatchFileCapability) {
             // we won't get notifs from client for changes, let's spawn a watcher to track our own
@@ -1472,29 +1501,6 @@ export abstract class LanguageServerBase implements LanguageServerInterface {
         }
 
         return MarkupKind.PlainText;
-    }
-
-    private async _getProgressReporter(reporter: WorkDoneProgressReporter, title: string, token: CancellationToken) {
-        // This is a bit ugly, but we need to determine whether the provided reporter
-        // is an actual client-side progress reporter or a dummy (null) progress reporter
-        // created by the LSP library. If it's the latter, we'll create a server-initiated
-        // progress reporter.
-        if (reporter.constructor !== nullProgressReporter.constructor) {
-            return { reporter: reporter, source: CancelAfter(this.serverOptions.cancellationProvider, token) };
-        }
-
-        const serverInitiatedReporter = await this.connection.window.createWorkDoneProgress();
-        serverInitiatedReporter.begin(
-            title,
-            /* percentage */ undefined,
-            /* message */ undefined,
-            /* cancellable */ true
-        );
-
-        return {
-            reporter: serverInitiatedReporter,
-            source: CancelAfter(this.serverOptions.cancellationProvider, token, serverInitiatedReporter.token),
-        };
     }
 
     private _convertDiagnostics(fs: FileSystem, diags: AnalyzerDiagnostic[]): Diagnostic[] {

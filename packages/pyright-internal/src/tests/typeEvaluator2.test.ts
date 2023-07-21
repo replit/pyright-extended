@@ -75,7 +75,7 @@ test('Assignment1', () => {
 test('Assignment2', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['assignment2.py']);
 
-    TestUtils.validateResults(analysisResults, 3);
+    TestUtils.validateResults(analysisResults, 2);
 });
 
 test('Assignment3', () => {
@@ -318,6 +318,12 @@ test('Unbound3', () => {
 
 test('Unbound4', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['unbound4.py']);
+
+    TestUtils.validateResults(analysisResults, 2);
+});
+
+test('Unbound5', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['unbound5.py']);
 
     TestUtils.validateResults(analysisResults, 2);
 });
@@ -649,6 +655,12 @@ test('Solver25', () => {
 
 test('Solver26', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['solver26.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('Solver27', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['solver27.py']);
 
     TestUtils.validateResults(analysisResults, 0);
 });
@@ -1005,6 +1017,12 @@ test('GenericType44', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['genericType44.py']);
 
     TestUtils.validateResults(analysisResults, 0);
+});
+
+test('GenericType45', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['genericType45.py']);
+
+    TestUtils.validateResults(analysisResults, 6);
 });
 
 test('Protocol1', () => {

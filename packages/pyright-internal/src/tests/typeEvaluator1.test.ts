@@ -315,6 +315,12 @@ test('TypeNarrowingIsNone2', () => {
     TestUtils.validateResults(analysisResults, 0);
 });
 
+test('TypeNarrowingIsClass1', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typeNarrowingIsClass1.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
 test('TypeNarrowingIsNoneTuple1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typeNarrowingIsNoneTuple1.py']);
 
@@ -791,6 +797,12 @@ test('Call10', () => {
     TestUtils.validateResults(analysisResults, 3);
 });
 
+test('Call11', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['call11.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
 test('Function1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['function1.py']);
 
@@ -878,7 +890,7 @@ test('FunctionMember2', () => {
 test('Annotations1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['annotations1.py']);
 
-    TestUtils.validateResults(analysisResults, 11);
+    TestUtils.validateResults(analysisResults, 16);
 });
 
 test('Annotations2', () => {
@@ -1482,6 +1494,12 @@ test('Descriptor2', () => {
     TestUtils.validateResults(analysisResults, 0);
 });
 
+test('Descriptor3', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['descriptor3.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
 test('Partial1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['partial1.py']);
 
@@ -1502,6 +1520,12 @@ test('Partial3', () => {
 
 test('Partial4', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['partial4.py']);
+
+    TestUtils.validateResults(analysisResults, 3);
+});
+
+test('Partial5', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['partial5.py']);
 
     TestUtils.validateResults(analysisResults, 3);
 });

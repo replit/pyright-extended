@@ -1411,7 +1411,7 @@ export function* getClassIterator(classType: Type, flags = ClassIteratorFlags.De
         let foundSkipMroClass = skipMroClass === undefined;
 
         for (const mroClass of classType.details.mro) {
-            // Are we still searching fro teh skipMroClass?
+            // Are we still searching for the skipMroClass?
             if (!foundSkipMroClass && skipMroClass) {
                 if (!isClass(mroClass)) {
                     foundSkipMroClass = true;
@@ -3666,6 +3666,19 @@ class ApplySolvedTypeVarsTransformer extends TypeVarTransformer {
         // don't transform that type variable.
         if (typeVar.scopeId && this._typeVarContext.hasSolveForScope(typeVar.scopeId)) {
             let replacement = signatureContext.getTypeVarType(typeVar, !!this._options.useNarrowBoundOnly);
+
+            // If the type is unknown, see if there's a known wide bound that we can use.
+            if (
+                replacement &&
+                isUnknown(replacement) &&
+                !this._options.useNarrowBoundOnly &&
+                this._options.unknownIfNotFound
+            ) {
+                const entry = signatureContext.getTypeVar(typeVar);
+                if (entry?.wideBound) {
+                    replacement = entry?.wideBound;
+                }
+            }
 
             // If there was no narrow bound but there is a wide bound that
             // contains literals or a TypeVar, we'll use the wide bound even if

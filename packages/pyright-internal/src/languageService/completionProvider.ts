@@ -501,7 +501,8 @@ export class CompletionProvider {
                             classResults.classType,
                             isDeclaredStaticMethod,
                             isProperty,
-                            decl
+                            decl,
+                            decl.node.isAsync
                         );
                         text = `${methodSignature}:\n${methodBody}`;
                     }
@@ -527,7 +528,8 @@ export class CompletionProvider {
         classType: ClassType,
         isStaticMethod: boolean,
         isProperty: boolean,
-        decl: FunctionDeclaration
+        decl: FunctionDeclaration,
+        insertAwait?: boolean
     ) {
         let sb = this.parseResults.tokenizerOutput.predominantTabSequence;
 
@@ -550,7 +552,7 @@ export class CompletionProvider {
             sb += 'return ';
         }
 
-        if (decl.node.isAsync) {
+        if (insertAwait) {
             sb += 'await ';
         }
 
@@ -755,7 +757,14 @@ export class CompletionProvider {
             subtype = this.evaluator.makeTopLevelTypeVarsConcrete(subtype);
 
             if (isClass(subtype)) {
-                getMembersForClass(subtype, symbolTable, /* includeInstanceVars */ TypeBase.isInstance(subtype));
+                const instance = TypeBase.isInstance(subtype);
+                if (ClassType.isEnumClass(subtype) && instance) {
+                    // We don't add members for instances of enum members.
+                    // ex) 'MyEnum.member.' <= here
+                    return;
+                }
+
+                getMembersForClass(subtype, symbolTable, instance);
             } else if (isModule(subtype)) {
                 getMembersForModule(subtype, symbolTable);
             } else if (isFunction(subtype) || isOverloadedFunction(subtype)) {
