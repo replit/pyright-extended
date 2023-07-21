@@ -80,7 +80,7 @@ export class PyrightServer extends LanguageServerBase {
             watchForLibraryChanges: true,
             watchForConfigChanges: true,
             openFilesOnly: true,
-            useLibraryCodeForTypes: false,
+            useLibraryCodeForTypes: true,
             disableLanguageServices: false,
             disableOrganizeImports: true,
             typeCheckingMode: 'basic',
