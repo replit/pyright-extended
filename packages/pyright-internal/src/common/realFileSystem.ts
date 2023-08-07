@@ -13,18 +13,16 @@ import { isMainThread } from 'worker_threads';
 import { ChokidarFileWatcherProvider } from './chokidarFileWatcherProvider';
 
 import { ConsoleInterface, NullConsole } from './console';
-import {
-    FileSystem,
-    FileWatcher,
-    FileWatcherEventHandler,
-    FileWatcherEventType,
-    FileWatcherHandler,
-    FileWatcherProvider,
-    MkDirOptions,
-    nullFileWatcherProvider,
-    TmpfileOptions,
-} from './fileSystem';
+import { FileSystem, MkDirOptions, TmpfileOptions } from './fileSystem';
 import { getRootLength } from './pathUtils';
+import {
+    FileWatcherProvider,
+    nullFileWatcherProvider,
+    FileWatcherEventHandler,
+    FileWatcherHandler,
+    FileWatcherEventType,
+    FileWatcher,
+} from './fileWatcher';
 
 // Automatically remove files created by tmp at process exit.
 tmp.setGracefulCleanup();

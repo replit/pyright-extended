@@ -336,7 +336,7 @@ test('Overload14', () => {
 
 test('Overload15', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['overload15.py']);
-    TestUtils.validateResults(analysisResults, 9);
+    TestUtils.validateResults(analysisResults, 9, 1);
 });
 
 test('Final1', () => {
@@ -371,6 +371,11 @@ test('InferredTypes1', () => {
 
 test('InferredTypes2', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['inferredTypes2.py']);
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('InferredTypes3', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['inferredTypes3.py']);
     TestUtils.validateResults(analysisResults, 0);
 });
 
@@ -1020,7 +1025,7 @@ test('ParamSpec40', () => {
 
 test('ParamSpec41', () => {
     const results = TestUtils.typeAnalyzeSampleFiles(['paramSpec41.py']);
-    TestUtils.validateResults(results, 0);
+    TestUtils.validateResults(results, 1);
 });
 
 test('ParamSpec42', () => {

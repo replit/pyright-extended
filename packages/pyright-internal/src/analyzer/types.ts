@@ -103,7 +103,12 @@ export class EnumLiteral {
 export type LiteralValue = number | bigint | boolean | string | EnumLiteral;
 
 export type TypeSourceId = number;
-export const maxTypeRecursionCount = 32;
+
+// This constant controls the maximum number of nested types (i.e. types
+// used as type arguments or parameter types in other types) before we
+// give up. This constant was previously set to 32, but there were certain
+// pathological recursive types where this resulted in a hang.
+export const maxTypeRecursionCount = 10;
 
 export type InheritanceChain = (ClassType | UnknownType)[];
 
@@ -729,14 +734,16 @@ export namespace ClassType {
         return newInstance;
     }
 
-    export function cloneAsInstantiable(type: ClassType): ClassType {
-        if (type.cached?.typeBaseInstantiableType) {
+    export function cloneAsInstantiable(type: ClassType, includeSubclasses = true): ClassType {
+        if (includeSubclasses && type.cached?.typeBaseInstantiableType) {
             return type.cached.typeBaseInstantiableType as ClassType;
         }
 
-        const newInstance = TypeBase.cloneTypeAsInstantiable(type, /* cache */ true);
+        const newInstance = TypeBase.cloneTypeAsInstantiable(type, includeSubclasses);
         newInstance.flags &= ~TypeFlags.SpecialForm;
-        newInstance.includeSubclasses = true;
+        if (includeSubclasses) {
+            newInstance.includeSubclasses = true;
+        }
 
         return newInstance;
     }
@@ -1274,9 +1281,6 @@ export const enum FunctionTypeFlags {
     // Function is declared with async keyword
     Async = 1 << 9,
 
-    // Indicates that return type should be wrapped in an awaitable type
-    WrapReturnTypeInAwait = 1 << 10,
-
     // Function is declared within a type stub fille
     StubDefinition = 1 << 11,
 
@@ -1367,6 +1371,11 @@ export interface CallSiteInferenceTypeCacheEntry {
     returnType: Type;
 }
 
+export interface SignatureWithOffsets {
+    type: FunctionType | OverloadedFunctionType;
+    expressionOffsets: number[];
+}
+
 export interface FunctionType extends TypeBase {
     category: TypeCategory.Function;
 
@@ -1401,6 +1410,12 @@ export interface FunctionType extends TypeBase {
     // If this function is part of an overloaded function, this
     // refers back to the overloaded function type.
     overloaded?: OverloadedFunctionType;
+
+    // If this function is a callable that was returned by another
+    // function call, the signatures of the function that was used
+    // for that call and any other signatures that were passed as
+    // arguments to it.
+    trackedSignatures?: SignatureWithOffsets[];
 }
 
 export namespace FunctionType {
@@ -1648,12 +1663,19 @@ export namespace FunctionType {
         return newFunction;
     }
 
-    export function cloneWithNewTypeVarScopeId(type: FunctionType, newScopeId: TypeVarScopeId): FunctionType {
+    export function cloneWithNewTypeVarScopeId(
+        type: FunctionType,
+        newScopeId: TypeVarScopeId,
+        typeParameters: TypeVarType[],
+        trackedSignatures?: SignatureWithOffsets[]
+    ): FunctionType {
         const newFunction = TypeBase.cloneType(type);
 
         // Make a shallow clone of the details.
         newFunction.details = { ...type.details };
         newFunction.details.typeVarScopeId = newScopeId;
+        newFunction.details.typeParameters = typeParameters;
+        newFunction.trackedSignatures = trackedSignatures;
 
         return newFunction;
     }
@@ -1871,10 +1893,6 @@ export namespace FunctionType {
 
     export function isAsync(type: FunctionType) {
         return (type.details.flags & FunctionTypeFlags.Async) !== 0;
-    }
-
-    export function isWrapReturnTypeInAwait(type: FunctionType) {
-        return (type.details.flags & FunctionTypeFlags.WrapReturnTypeInAwait) !== 0;
     }
 
     export function isStubDefinition(type: FunctionType) {

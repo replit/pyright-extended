@@ -935,14 +935,18 @@ test('TypeGuard2', () => {
 });
 
 test('TypeGuard3', () => {
-    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typeGuard3.py']);
+    const configOptions = new ConfigOptions('.');
+    configOptions.diagnosticRuleSet.enableExperimentalFeatures = true;
 
-    TestUtils.validateResults(analysisResults, 1);
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typeGuard3.py'], configOptions);
+    TestUtils.validateResults(analysisResults, 0);
 });
 
 test('TypeGuard4', () => {
-    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typeGuard4.py']);
+    const configOptions = new ConfigOptions('.');
+    configOptions.diagnosticRuleSet.enableExperimentalFeatures = true;
 
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typeGuard4.py'], configOptions);
     TestUtils.validateResults(analysisResults, 0);
 });
 
@@ -1219,6 +1223,14 @@ test('MatchClass3', () => {
 
     configOptions.defaultPythonVersion = PythonVersion.V3_10;
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['matchClass3.py'], configOptions);
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('MatchClass4', () => {
+    const configOptions = new ConfigOptions('.');
+
+    configOptions.defaultPythonVersion = PythonVersion.V3_10;
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['matchClass4.py'], configOptions);
     TestUtils.validateResults(analysisResults, 0);
 });
 

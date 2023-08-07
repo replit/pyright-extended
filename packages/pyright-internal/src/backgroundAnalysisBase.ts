@@ -11,7 +11,7 @@ import { MessageChannel, MessagePort, Worker, parentPort, threadId, workerData }
 
 import { AnalysisCompleteCallback, AnalysisResults, analyzeProgram, nullCallback } from './analyzer/analysis';
 import { ImportResolver } from './analyzer/importResolver';
-import { OpenFileOptions, Program, SourceFileFactory } from './analyzer/program';
+import { OpenFileOptions, Program, ISourceFileFactory } from './analyzer/program';
 import {
     BackgroundThreadBase,
     InitializationData,
@@ -37,6 +37,7 @@ import { Host, HostKind } from './common/host';
 import { LogTracker } from './common/logTracker';
 import { Range } from './common/textRange';
 import { BackgroundAnalysisProgram, InvalidatedReason } from './analyzer/backgroundAnalysisProgram';
+import { PyrightFileSystem } from './pyrightFileSystem';
 
 export class BackgroundAnalysisBase {
     private _worker: Worker | undefined;
@@ -264,7 +265,7 @@ export abstract class BackgroundAnalysisRunnerBase extends BackgroundThreadBase 
     protected importResolver: ImportResolver;
     protected logTracker: LogTracker;
 
-    protected constructor(fileSystem?: FileSystem, sourceFileFactory?: SourceFileFactory) {
+    protected constructor(fileSystem?: PyrightFileSystem, sourceFileFactory?: ISourceFileFactory) {
         super(workerData as InitializationData, fileSystem);
 
         // Stash the base directory into a global variable.
@@ -457,7 +458,7 @@ export abstract class BackgroundAnalysisRunnerBase extends BackgroundThreadBase 
         // Report files to analyze first.
         const filesLeftToAnalyze = this.program.getFilesToAnalyzeCount();
 
-        this._onAnalysisCompletion(port, {
+        this.onAnalysisCompletion(port, {
             diagnostics: [],
             filesInProgram: this.program.getFileCount(),
             filesRequiringAnalysis: filesLeftToAnalyze,
@@ -477,7 +478,7 @@ export abstract class BackgroundAnalysisRunnerBase extends BackgroundThreadBase 
             this.program,
             maxTime,
             this._configOptions,
-            (result) => this._onAnalysisCompletion(port, result),
+            (result) => this.onAnalysisCompletion(port, result),
             this.getConsole(),
             token
         );
@@ -598,6 +599,10 @@ export abstract class BackgroundAnalysisRunnerBase extends BackgroundThreadBase 
         port.postMessage({ requestType: 'analysisDone', data: cancellationId });
     }
 
+    protected onAnalysisCompletion(port: MessagePort, result: AnalysisResults) {
+        port.postMessage({ requestType: 'analysisResult', data: result });
+    }
+
     private _onMessageWrapper(msg: AnalysisRequest) {
         try {
             return this.onMessage(msg);
@@ -619,7 +624,7 @@ export abstract class BackgroundAnalysisRunnerBase extends BackgroundThreadBase 
 
     private _reportDiagnostics(diagnostics: FileDiagnostics[], filesLeftToAnalyze: number, elapsedTime: number) {
         if (parentPort) {
-            this._onAnalysisCompletion(parentPort, {
+            this.onAnalysisCompletion(parentPort, {
                 diagnostics,
                 filesInProgram: this.program.getFileCount(),
                 filesRequiringAnalysis: filesLeftToAnalyze,
@@ -629,10 +634,6 @@ export abstract class BackgroundAnalysisRunnerBase extends BackgroundThreadBase 
                 elapsedTime,
             });
         }
-    }
-
-    private _onAnalysisCompletion(port: MessagePort, result: AnalysisResults) {
-        port.postMessage({ requestType: 'analysisResult', data: result });
     }
 
     private _analysisPaused(port: MessagePort, cancellationId: string) {

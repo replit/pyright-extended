@@ -46,8 +46,9 @@ import { SupportPartialStubs } from '../pyrightFileSystem';
 import { ImplicitImport, ImportResult, ImportType } from './importResult';
 import { getDirectoryLeadingDotsPointsTo } from './importStatementUtils';
 import { ImportPath, ParentDirectoryCache } from './parentDirectoryCache';
+import { PyTypedInfo, getPyTypedInfo } from './pyTypedUtils';
 import * as PythonPathUtils from './pythonPathUtils';
-import { getPyTypedInfo, PyTypedInfo } from './pyTypedUtils';
+import * as SymbolNameUtils from './symbolNameUtils';
 import { isDunderName } from './symbolNameUtils';
 
 export interface ImportedModuleDescriptor {
@@ -2097,15 +2098,6 @@ export class ImportResolver {
             if (this.dirExistsCached(customTypeshedPath)) {
                 typeshedPath = customTypeshedPath;
             }
-        } else {
-            const pythonSearchPaths = this.getPythonSearchPaths(importFailureInfo);
-            for (const searchPath of pythonSearchPaths) {
-                const possibleTypeshedPath = combinePaths(searchPath, 'typeshed');
-                if (this.dirExistsCached(possibleTypeshedPath)) {
-                    typeshedPath = possibleTypeshedPath;
-                    break;
-                }
-            }
         }
 
         // If typeshed directory wasn't found in other locations, use the fallback.
@@ -2410,15 +2402,30 @@ export class ImportResolver {
         };
 
         // Make sure we don't use parent folder resolution when checking whether the given name is resolvable.
+        let importResult: ImportResult | undefined;
         if (strictOnly) {
             const importName = this.formatImportName(moduleDescriptor);
             const importFailureInfo: string[] = [];
 
-            return this._resolveImportStrict(importName, sourceFilePath, execEnv, moduleDescriptor, importFailureInfo)
-                .isImportFound;
+            importResult = this._resolveImportStrict(
+                importName,
+                sourceFilePath,
+                execEnv,
+                moduleDescriptor,
+                importFailureInfo
+            );
+        } else {
+            importResult = this.resolveImportInternal(sourceFilePath, execEnv, moduleDescriptor);
         }
 
-        return this.resolveImportInternal(sourceFilePath, execEnv, moduleDescriptor).isImportFound;
+        if (importResult && importResult.isImportFound) {
+            // Check the import isn't for a private or protected module. If it is, then
+            // only allow it if there's no py.typed file.
+            if (!SymbolNameUtils.isPrivateOrProtectedName(name) || importResult.pyTypedInfo === undefined) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private _isUniqueValidSuggestion(suggestionToAdd: string, suggestions: Map<string, string>) {

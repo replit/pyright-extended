@@ -77,7 +77,7 @@ test('AutoVariance1', () => {
     configOptions.defaultPythonVersion = PythonVersion.V3_12;
 
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['autoVariance1.py'], configOptions);
-    TestUtils.validateResults(analysisResults, 11);
+    TestUtils.validateResults(analysisResults, 16);
 });
 
 test('AutoVariance2', () => {
@@ -93,7 +93,7 @@ test('AutoVariance3', () => {
     configOptions.defaultPythonVersion = PythonVersion.V3_12;
 
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['autoVariance3.py'], configOptions);
-    TestUtils.validateResults(analysisResults, 13);
+    TestUtils.validateResults(analysisResults, 18);
 });
 
 test('AutoVariance4', () => {
@@ -293,11 +293,17 @@ test('TypeAliasType2', () => {
 });
 
 test('TypedDictReadOnly1', () => {
-    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typedDictReadOnly1.py']);
+    const configOptions = new ConfigOptions('.');
+    configOptions.diagnosticRuleSet.enableExperimentalFeatures = true;
+
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typedDictReadOnly1.py'], configOptions);
     TestUtils.validateResults(analysisResults, 5);
 });
 
 test('TypedDictReadOnly2', () => {
-    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typedDictReadOnly2.py']);
+    const configOptions = new ConfigOptions('.');
+    configOptions.diagnosticRuleSet.enableExperimentalFeatures = true;
+
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typedDictReadOnly2.py'], configOptions);
     TestUtils.validateResults(analysisResults, 9);
 });

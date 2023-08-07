@@ -550,7 +550,7 @@ export class SourceFile {
                 return false;
             }
 
-            const diagSink = new DiagnosticSink();
+            const diagSink = this.createDiagnosticSink();
             let fileContents = this.getOpenFileContents();
             if (fileContents === undefined) {
                 try {
@@ -670,7 +670,7 @@ export class SourceFile {
                 this._writableData.builtinsImport = undefined;
                 this._writableData.ipythonDisplayImport = undefined;
 
-                const diagSink = new DiagnosticSink();
+                const diagSink = this.createDiagnosticSink();
                 diagSink.addError(
                     Localizer.Diagnostic.internalParseError().format({ file: this.getFilePath(), message }),
                     getEmptyRange()
@@ -744,7 +744,7 @@ export class SourceFile {
                     Localizer.Diagnostic.internalBindError().format({ file: this.getFilePath(), message })
                 );
 
-                const diagSink = new DiagnosticSink();
+                const diagSink = this.createDiagnosticSink();
                 diagSink.addError(
                     Localizer.Diagnostic.internalBindError().format({ file: this.getFilePath(), message }),
                     getEmptyRange()
@@ -822,7 +822,7 @@ export class SourceFile {
                     this._console.error(
                         Localizer.Diagnostic.internalTypeCheckingError().format({ file: this.getFilePath(), message })
                     );
-                    const diagSink = new DiagnosticSink();
+                    const diagSink = this.createDiagnosticSink();
                     diagSink.addError(
                         Localizer.Diagnostic.internalTypeCheckingError().format({ file: this.getFilePath(), message }),
                         getEmptyRange()
@@ -852,6 +852,14 @@ export class SourceFile {
 
     protected createParser(): IParser {
         return new Parser();
+    }
+
+    protected createDiagnosticSink(): DiagnosticSink {
+        return new DiagnosticSink();
+    }
+
+    protected createTextRangeDiagnosticSink(lines: TextRangeCollection<TextRange>): TextRangeDiagnosticSink {
+        return new TextRangeDiagnosticSink(lines);
     }
 
     // Computes an updated set of accumulated diagnostics for the file
@@ -1222,7 +1230,9 @@ export class SourceFile {
         futureImports: Set<string>
     ) {
         assert(this._writableData.parseResults !== undefined, 'Parse results not available');
-        const analysisDiagnostics = new TextRangeDiagnosticSink(this._writableData.parseResults!.tokenizerOutput.lines);
+        const analysisDiagnostics = this.createTextRangeDiagnosticSink(
+            this._writableData.parseResults!.tokenizerOutput.lines
+        );
 
         const fileInfo: AnalyzerFileInfo = {
             importLookup,

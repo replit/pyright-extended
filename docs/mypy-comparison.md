@@ -289,6 +289,13 @@ When pyright evaluates a call to a constructor, it attempts to follow the runtim
 By comparison, mypy first evaluates the `__init__` method if present, and it ignores the annotated return type of the `__new__` method.
 
 
+### `None` Return Type
+
+If the return type of a function is declared as `None`, an attempt to call that function and consume the returned value is flagged as an error by mypy. The justification is that this is a common source of bugs.
+
+Pyright does not special-case `None` in this manner because there are legitimate use cases, and in our experience, this class of bug is rare.
+
+
 ### Constraint Solver Behaviors
 
 When evaluating a call expression that invokes a generic class constructor or a generic function, a type checker performs a process called “constraint solving” to solve the type variables found within the target function signature. The solved type variables are then applied to the return type of that function to determine the final type of the call expression. This process is called “constraint solving” because it takes into account various constraints that are specified for each type variable. These constraints include variance rules and type variable bounds.
@@ -369,6 +376,20 @@ def higher_order2(cb: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
 
 v2 = higher_order2(identity, "")  # mypy generates an error
 reveal_type(v2)  # mypy: T, pyright: str
+```
+
+
+#### Constraint Solver: Overloads and ParamSpec
+
+If a function accepts a `Callable` parameterized with a `ParamSpec`, pyright allows you to pass an overloaded function as an argument. The constraint solver solves the type variables for each overload signature independently and then “unions” the results. Mypy uses only the first overload in this case and ignores all subsequent overloads.
+
+```python
+def wrap(func: Callable[P, T]) -> Callable[P, T]:
+    ...
+
+# 'max' is an overloaded built-in function
+max2 = wrap(max)
+reveal_type(max2) # Mypy includes only the first overload, pyright includes all
 ```
 
 
@@ -488,4 +509,10 @@ x: float
 y: float
 x, y = (3, 4)
 ```
+
+### Plugins
+
+Mypy supports a plug-in mechanism, whereas pyright does not. Mypy plugins allow developers to extend mypy’s capabilities to accommodate libraries that rely on behaviors that cannot be described using the standard type checking mechanisms.
+
+Pyright maintainers have made the decision not to support plug-ins because of their many downsides: discoverability, maintainability, cost of development for the plug-in author, cost of maintenance for the plug-in object model and API, security, performance (especially latency — which is critical for language servers), and robustness. Instead, we have taken the approach of working with the typing community and library authors to extend the type system so it can accommodate more use cases. An example of this is [PEP 681](https://peps.python.org/pep-0681/), which introduced `dataclass_transform`.
 
