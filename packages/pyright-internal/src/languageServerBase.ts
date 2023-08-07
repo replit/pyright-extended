@@ -104,7 +104,7 @@ import { DiagnosticRule } from './common/diagnosticRules';
 import { FileDiagnostics } from './common/diagnosticSink';
 import { Extensions } from './common/extensibility';
 import { FileSystem } from './common/fileSystem';
-import { FileWatcherEventType, FileWatcherHandler } from './common/fileWatcher';
+import { FileWatcherEventType, FileWatcherHandler, FileWatcherProvider } from './common/fileWatcher';
 import { Host } from './common/host';
 import { fromLSPAny } from './common/lspUtils';
 import { convertPathToUri, deduplicateFolders, getDirectoryPath, getFileName, isFile } from './common/pathUtils';
