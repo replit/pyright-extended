@@ -52,7 +52,6 @@ if not configs["pyright-extended"] then
         python = {
           analysis = {
             autoSearchPaths = true,
-            diagnosticMode = "workspace",
             useLibraryCodeForTypes = true
           }
         }

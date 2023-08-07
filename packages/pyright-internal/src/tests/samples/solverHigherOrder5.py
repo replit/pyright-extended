@@ -117,7 +117,7 @@ def test_4(pair: Pair[Pair[Pair[A, B], C], D]) -> Pair[Pair[Pair[A, B], C], D]:
 
 @overload
 def test_5(
-    a: type[Callable[P, type[T]]], *, b: Literal[False, None] = ...
+    a: Callable[P, type[T]], *, b: Literal[False, None] = ...
 ) -> type[list[type[T]]]:
     ...
 
@@ -145,5 +145,27 @@ reveal_type(
 val4 = test_5(test_5, b=True)
 reveal_type(
     val4,
-    expected_text="type[list[Overload[(a: type[(**P(1)@test_5) -> type[T(1)@test_5]], *, b: Literal[False] | None = ...) -> type[list[type[T(1)@test_5]]], (a: T(1)@test_5, *args: int, b: Literal[False] | None = ...) -> type[list[T(1)@test_5]], (a: T(1)@test_5, *args: int, b: Literal[True] = ...) -> type[list[T(1)@test_5]], (a: Any, *args: int, b: Any = ...) -> Any]]]",
+    expected_text="type[list[Overload[(a: (**P(1)@test_5) -> type[T(1)@test_5], *, b: Literal[False] | None = ...) -> type[list[type[T(1)@test_5]]], (a: T(1)@test_5, *args: int, b: Literal[False] | None = ...) -> type[list[T(1)@test_5]], (a: T(1)@test_5, *args: int, b: Literal[True] = ...) -> type[list[T(1)@test_5]], (a: Any, *args: int, b: Any = ...) -> Any]]]",
 )
+
+
+def test_6(g: Callable[[B], C]) -> Callable[[Callable[[A], B]], Callable[[A], C]]:
+    ...
+
+
+val5 = test_6(test_6)
+reveal_type(
+    val5,
+    expected_text="((A@test_6) -> ((B(1)@test_6) -> C(1)@test_6)) -> ((A@test_6) -> ((((A(1)@test_6) -> B(1)@test_6)) -> ((A(1)@test_6) -> C(1)@test_6)))",
+)
+
+
+def test_7(
+    g: Callable[[C], D]
+) -> Callable[[Callable[[A], Callable[[B], C]]], Callable[[A], Callable[[B], D]]]:
+    val6 = test_6(test_6)(test_6)(g)
+    reveal_type(
+        val6,
+        expected_text="((A(1)@test_6) -> ((A(2)@test_6) -> C@test_7)) -> ((A(1)@test_6) -> ((A(2)@test_6) -> D@test_7))",
+    )
+    return val6

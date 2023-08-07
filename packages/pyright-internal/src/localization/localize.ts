@@ -9,12 +9,19 @@
 
 import { fail } from '../common/debug';
 
-import enUsStrings = require('./package.nls.en-us.json');
+import csStrings = require('./package.nls.cs.json');
 import deStrings = require('./package.nls.de.json');
+import enUsStrings = require('./package.nls.en-us.json');
 import esStrings = require('./package.nls.es.json');
 import frStrings = require('./package.nls.fr.json');
+import itStrings = require('./package.nls.it.json');
 import jaStrings = require('./package.nls.ja.json');
+import koStrings = require('./package.nls.ko.json');
+import plStrings = require('./package.nls.pl.json');
+import ptBrStrings = require('./package.nls.pt-br.json');
+import qpsPlocStrings = require('./package.nls.qps-ploc.json');
 import ruStrings = require('./package.nls.ru.json');
+import trStrings = require('./package.nls.tr.json');
 import zhCnStrings = require('./package.nls.zh-cn.json');
 import zhTwStrings = require('./package.nls.zh-tw.json');
 
@@ -36,12 +43,20 @@ export class ParameterizedString<T extends {}> {
 
 const defaultLocale = 'en-us';
 const stringMapsByLocale: Map<string, any> = new Map([
+    ['cs', csStrings],
     ['de', deStrings],
     ['en-us', enUsStrings],
+    ['en', enUsStrings],
     ['es', esStrings],
     ['fr', frStrings],
+    ['it', itStrings],
     ['ja', jaStrings],
+    ['ko', koStrings],
+    ['pl', plStrings],
+    ['pt-br', ptBrStrings],
+    ['qps-ploc', qpsPlocStrings],
     ['ru', ruStrings],
+    ['tr', trStrings],
     ['zh-cn', zhCnStrings],
     ['zh-tw', zhTwStrings],
 ]);
@@ -50,7 +65,7 @@ type StringLookupMap = { [key: string]: string | StringLookupMap };
 let localizedStrings: StringLookupMap | undefined = undefined;
 let defaultStrings: StringLookupMap = {};
 
-function getRawString(key: string): string {
+function getRawStringDefault(key: string): string {
     if (localizedStrings === undefined) {
         localizedStrings = initialize();
     }
@@ -63,6 +78,16 @@ function getRawString(key: string): string {
     }
 
     fail(`Missing localized string for key "${key}"`);
+}
+
+let getRawString = getRawStringDefault;
+
+// Function allowing different strings to be used for messages.
+// Returns the previous function used for getting messages.
+export function setGetRawString(func: (key: string) => string): (key: string) => string {
+    const oldLookup = getRawString;
+    getRawString = func;
+    return oldLookup;
 }
 
 export function getRawStringFromMap(map: StringLookupMap, keyParts: string[]): string | undefined {
@@ -796,11 +821,6 @@ export namespace Localizer {
         export const staticClsSelfParam = () => getRawString('Diagnostic.staticClsSelfParam');
         export const stdlibModuleOverridden = () =>
             new ParameterizedString<{ name: string; path: string }>(getRawString('Diagnostic.stdlibModuleOverridden'));
-
-        export const strictTypeGuardReturnType = () =>
-            new ParameterizedString<{ type: string; returnType: string }>(
-                getRawString('Diagnostic.strictTypeGuardReturnType')
-            );
         export const stringNonAsciiBytes = () => getRawString('Diagnostic.stringNonAsciiBytes');
         export const stringNotSubscriptable = () => getRawString('Diagnostic.stringNotSubscriptable');
         export const stringUnsupportedEscape = () => getRawString('Diagnostic.stringUnsupportedEscape');
@@ -844,6 +864,7 @@ export namespace Localizer {
         export const typeAliasTypeParamInvalid = () => getRawString('Diagnostic.typeAliasTypeParamInvalid');
         export const typeAnnotationCall = () => getRawString('Diagnostic.typeAnnotationCall');
         export const typeAnnotationVariable = () => getRawString('Diagnostic.typeAnnotationVariable');
+        export const typeAnnotationWithCallable = () => getRawString('Diagnostic.typeAnnotationWithCallable');
         export const typeArgListExpected = () => getRawString('Diagnostic.typeArgListExpected');
         export const typeArgListNotAllowed = () => getRawString('Diagnostic.typeArgListNotAllowed');
         export const typeArgsExpectingNone = () =>
@@ -1357,11 +1378,17 @@ export namespace Localizer {
         export const typeVarDefaultOutOfScope = () =>
             new ParameterizedString<{ name: string }>(getRawString('DiagnosticAddendum.typeVarDefaultOutOfScope'));
         export const typeVarIsContravariant = () =>
-            new ParameterizedString<{ name: string }>(getRawString('DiagnosticAddendum.typeVarIsContravariant'));
+            new ParameterizedString<{ name: string; sourceType: string; destType: string }>(
+                getRawString('DiagnosticAddendum.typeVarIsContravariant')
+            );
         export const typeVarIsCovariant = () =>
-            new ParameterizedString<{ name: string }>(getRawString('DiagnosticAddendum.typeVarIsCovariant'));
+            new ParameterizedString<{ name: string; sourceType: string; destType: string }>(
+                getRawString('DiagnosticAddendum.typeVarIsCovariant')
+            );
         export const typeVarIsInvariant = () =>
-            new ParameterizedString<{ name: string }>(getRawString('DiagnosticAddendum.typeVarIsInvariant'));
+            new ParameterizedString<{ name: string; sourceType: string; destType: string }>(
+                getRawString('DiagnosticAddendum.typeVarIsInvariant')
+            );
         export const typeVarsMissing = () =>
             new ParameterizedString<{ names: string }>(getRawString('DiagnosticAddendum.typeVarsMissing'));
         export const typeVarNotAllowed = () => getRawString('DiagnosticAddendum.typeVarNotAllowed');

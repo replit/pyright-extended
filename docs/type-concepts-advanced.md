@@ -62,6 +62,7 @@ In addition to assignment-based type narrowing, Pyright supports the following t
 * `type(x) is T` and `type(x) is not T`
 * `type(x) == T` and `type(x) != T`
 * `x is E` and `x is not E` (where E is a literal enum or bool)
+* `x is C` and `x is not C` (where C is a class)
 * `x == L` and `x != L` (where L is an expression that evaluates to a literal type)
 * `x.y is None` and `x.y is not None` (where x is a type that is distinguished by a field with a None)
 * `x.y is E` and `x.y is not E` (where E is a literal enum or bool and x is a type that is distinguished by a field with a literal type)
@@ -72,7 +73,7 @@ In addition to assignment-based type narrowing, Pyright supports the following t
 * `x[I] is None` and `x[I] is not None` (where I is a literal expression and x is a known-length tuple that is distinguished by the index indicated by I)
 * `len(x) == L` and `len(x) != L` (where x is tuple and L is a literal integer)
 * `x in y` or `x not in y` (where y is instance of list, set, frozenset, deque, tuple, dict, defaultdict, or OrderedDict)
-* `S in D` and `S not in D` (where S is a string literal and D is a final TypedDict)
+* `S in D` and `S not in D` (where S is a string literal and D is a TypedDict)
 * `isinstance(x, T)` (where T is a type or a tuple of types)
 * `issubclass(x, T)` (where T is a type or a tuple of types)
 * `callable(x)`
@@ -154,6 +155,7 @@ def func4(x: str | None):
 ```
 
 ### Narrowing for Implied Else
+
 When an “if” or “elif” clause is used without a corresponding “else”, Pyright will generally assume that the code can “fall through” without executing the “if” or “elif” block. However, there are cases where the analyzer can determine that a fall-through is not possible because the “if” or “elif” is guaranteed to be executed based on type analysis.
 
 ```python
@@ -219,6 +221,24 @@ reveal_type(b) # list[Any]
 c: Iterable[str] = [""]
 b = c
 reveal_type(b) # list[Any]
+```
+
+### Narrowing for Captured Variables
+
+If a variable’s type is narrowed in an outer scope and the variable is subsequently captured by an inner-scoped function or lambda, Pyright retains the narrowed type if it can determine that the value of the captured variable is not modified on any code path after the inner-scope function or lambda is defined and is not modified in another scope via a `nonlocal` or `global` binding.
+
+```python
+def func(val: int | None):
+    if val is not None:
+
+        def inner_1() -> None:
+            reveal_type(val)  # int
+            print(val + 1)
+
+        inner_2 = lambda: reveal_type(val) + 1  # int
+
+        inner_1()
+        inner_2()
 ```
 
 ### Constrained Type Variables

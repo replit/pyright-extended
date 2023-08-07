@@ -28,7 +28,7 @@ import { TextRangeCollection } from '../common/textRangeCollection';
 import { Duration, timingStats } from '../common/timing';
 import { Localizer } from '../localization/localize';
 import { ModuleNode } from '../parser/parseNodes';
-import { ModuleImport, ParseOptions, ParseResults, Parser } from '../parser/parser';
+import { IParser, ModuleImport, ParseOptions, Parser, ParseResults } from '../parser/parser';
 import { IgnoreComment } from '../parser/tokenizer';
 import { Token } from '../parser/tokenizerTypes';
 import { AnalyzerFileInfo, ImportLookup } from './analyzerFileInfo';
@@ -203,7 +203,7 @@ export class SourceFile {
         console?: ConsoleInterface,
         logTracker?: LogTracker,
         realFilePath?: string,
-        ipythonMode = IPythonMode.None
+        ipythonMode?: IPythonMode
     ) {
         this.fileSystem = fs;
         this._console = console || new StandardConsole();
@@ -240,7 +240,7 @@ export class SourceFile {
 
         // 'FG' or 'BG' based on current thread.
         this._logTracker = logTracker ?? new LogTracker(console, isMainThread ? 'FG' : 'BG');
-        this._ipythonMode = ipythonMode;
+        this._ipythonMode = ipythonMode ?? IPythonMode.None;
     }
 
     getRealFilePath(): string {
@@ -406,6 +406,10 @@ export class SourceFile {
         }
     }
 
+    getFileContentsVersion() {
+        return this._writableData.fileContentsVersion;
+    }
+
     getClientVersion() {
         return this._writableData.clientDocumentVersion;
     }
@@ -546,7 +550,7 @@ export class SourceFile {
                 return false;
             }
 
-            const diagSink = new DiagnosticSink();
+            const diagSink = this.createDiagnosticSink();
             let fileContents = this.getOpenFileContents();
             if (fileContents === undefined) {
                 try {
@@ -575,7 +579,7 @@ export class SourceFile {
 
             try {
                 // Parse the token stream, building the abstract syntax tree.
-                const parseResults = parseFile(
+                const parseResults = this._parseFile(
                     configOptions,
                     this._filePath,
                     fileContents!,
@@ -666,7 +670,7 @@ export class SourceFile {
                 this._writableData.builtinsImport = undefined;
                 this._writableData.ipythonDisplayImport = undefined;
 
-                const diagSink = new DiagnosticSink();
+                const diagSink = this.createDiagnosticSink();
                 diagSink.addError(
                     Localizer.Diagnostic.internalParseError().format({ file: this.getFilePath(), message }),
                     getEmptyRange()
@@ -740,7 +744,7 @@ export class SourceFile {
                     Localizer.Diagnostic.internalBindError().format({ file: this.getFilePath(), message })
                 );
 
-                const diagSink = new DiagnosticSink();
+                const diagSink = this.createDiagnosticSink();
                 diagSink.addError(
                     Localizer.Diagnostic.internalBindError().format({ file: this.getFilePath(), message }),
                     getEmptyRange()
@@ -818,7 +822,7 @@ export class SourceFile {
                     this._console.error(
                         Localizer.Diagnostic.internalTypeCheckingError().format({ file: this.getFilePath(), message })
                     );
-                    const diagSink = new DiagnosticSink();
+                    const diagSink = this.createDiagnosticSink();
                     diagSink.addError(
                         Localizer.Diagnostic.internalTypeCheckingError().format({ file: this.getFilePath(), message }),
                         getEmptyRange()
@@ -844,6 +848,18 @@ export class SourceFile {
 
     test_enableIPythonMode(enable: boolean) {
         this._ipythonMode = enable ? IPythonMode.CellDocs : IPythonMode.None;
+    }
+
+    protected createParser(): IParser {
+        return new Parser();
+    }
+
+    protected createDiagnosticSink(): DiagnosticSink {
+        return new DiagnosticSink();
+    }
+
+    protected createTextRangeDiagnosticSink(lines: TextRangeCollection<TextRange>): TextRangeDiagnosticSink {
+        return new TextRangeDiagnosticSink(lines);
     }
 
     // Computes an updated set of accumulated diagnostics for the file
@@ -1214,7 +1230,9 @@ export class SourceFile {
         futureImports: Set<string>
     ) {
         assert(this._writableData.parseResults !== undefined, 'Parse results not available');
-        const analysisDiagnostics = new TextRangeDiagnosticSink(this._writableData.parseResults!.tokenizerOutput.lines);
+        const analysisDiagnostics = this.createTextRangeDiagnosticSink(
+            this._writableData.parseResults!.tokenizerOutput.lines
+        );
 
         const fileInfo: AnalyzerFileInfo = {
             importLookup,
@@ -1332,28 +1350,28 @@ export class SourceFile {
     private _getPathForLogging(filepath: string) {
         return getPathForLogging(this.fileSystem, filepath);
     }
-}
 
-export function parseFile(
-    configOptions: ConfigOptions,
-    filePath: string,
-    fileContents: string,
-    ipythonMode: IPythonMode,
-    diagSink: DiagnosticSink
-) {
-    // Use the configuration options to determine the environment in which
-    // this source file will be executed.
-    const execEnvironment = configOptions.findExecEnvironment(filePath);
+    private _parseFile(
+        configOptions: ConfigOptions,
+        filePath: string,
+        fileContents: string,
+        ipythonMode: IPythonMode,
+        diagSink: DiagnosticSink
+    ) {
+        // Use the configuration options to determine the environment in which
+        // this source file will be executed.
+        const execEnvironment = configOptions.findExecEnvironment(filePath);
 
-    const parseOptions = new ParseOptions();
-    parseOptions.ipythonMode = ipythonMode;
-    if (filePath.endsWith('pyi')) {
-        parseOptions.isStubFile = true;
+        const parseOptions = new ParseOptions();
+        parseOptions.ipythonMode = ipythonMode;
+        if (filePath.endsWith('pyi')) {
+            parseOptions.isStubFile = true;
+        }
+        parseOptions.pythonVersion = execEnvironment.pythonVersion;
+        parseOptions.skipFunctionAndClassBody = configOptions.indexGenerationMode ?? false;
+
+        // Parse the token stream, building the abstract syntax tree.
+        const parser = this.createParser();
+        return parser.parseSourceFile(fileContents, parseOptions, diagSink);
     }
-    parseOptions.pythonVersion = execEnvironment.pythonVersion;
-    parseOptions.skipFunctionAndClassBody = configOptions.indexGenerationMode ?? false;
-
-    // Parse the token stream, building the abstract syntax tree.
-    const parser = new Parser();
-    return parser.parseSourceFile(fileContents, parseOptions, diagSink);
 }

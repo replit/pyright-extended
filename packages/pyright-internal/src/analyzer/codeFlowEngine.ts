@@ -65,6 +65,7 @@ import {
 } from './types';
 import {
     ClassMemberLookupFlags,
+    derivesFromStdlibClass,
     doForEachSubtype,
     isIncompleteUnknown,
     isTypeAliasPlaceholder,
@@ -269,7 +270,13 @@ export function getCodeFlowEngine(
             ) {
                 const cachedEntry = flowNodeTypeCache.cache.get(flowNode.id);
                 if (cachedEntry === undefined || !isIncompleteType(cachedEntry)) {
-                    fail('setIncompleteSubtype can be called only on a valid incomplete cache entry');
+                    fail(
+                        'setIncompleteSubtype can be called only on a valid incomplete cache entry: ' +
+                            `prev cache entry?: ${!cachedEntry} ` +
+                            `index=${index} ` +
+                            `isPending=${isPending}` +
+                            `evaluationCount=${evaluationCount}`
+                    );
                 }
 
                 const incompleteEntries = cachedEntry.incompleteSubtypes;
@@ -1620,16 +1627,13 @@ export function getCodeFlowEngine(
                     }
 
                     if (simpleStatement.nodeType === ParseNodeType.Raise && simpleStatement.typeExpression) {
-                        // Check for "raise NotImplementedError" or "raise NotImplementedError()"
-                        const isNotImplementedName = (node: ParseNode) => {
-                            return node?.nodeType === ParseNodeType.Name && node.value === 'NotImplementedError';
-                        };
+                        // Check for a raising about 'NotImplementedError' or a subtype thereof.
+                        const exceptionType = evaluator.getType(simpleStatement.typeExpression);
 
-                        if (isNotImplementedName(simpleStatement.typeExpression)) {
-                            foundRaiseNotImplemented = true;
-                        } else if (
-                            simpleStatement.typeExpression.nodeType === ParseNodeType.Call &&
-                            isNotImplementedName(simpleStatement.typeExpression.leftExpression)
+                        if (
+                            exceptionType &&
+                            isClass(exceptionType) &&
+                            derivesFromStdlibClass(exceptionType, 'NotImplementedError')
                         ) {
                             foundRaiseNotImplemented = true;
                         }
@@ -1686,7 +1690,22 @@ export function getCodeFlowEngine(
                 const exitType = evaluator.getTypeOfObjectMember(node, cmType, exitMethodName)?.type;
 
                 if (exitType && isFunction(exitType) && exitType.details.declaredReturnType) {
-                    const returnType = exitType.details.declaredReturnType;
+                    let returnType = exitType.details.declaredReturnType;
+
+                    // If it's an __aexit__ method, its return type will typically be wrapped
+                    // in a Coroutine, so we need to extract the return type from the third
+                    // type argument.
+                    if (isAsync) {
+                        if (
+                            isClassInstance(returnType) &&
+                            ClassType.isBuiltIn(returnType, 'Coroutine') &&
+                            returnType.typeArguments &&
+                            returnType.typeArguments.length >= 3
+                        ) {
+                            returnType = returnType.typeArguments[2];
+                        }
+                    }
+
                     cmSwallowsExceptions = false;
                     if (isClassInstance(returnType) && ClassType.isBuiltIn(returnType, 'bool')) {
                         if (returnType.literalValue === undefined || returnType.literalValue === true) {

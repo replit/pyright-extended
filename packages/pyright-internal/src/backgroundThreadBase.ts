@@ -45,13 +45,13 @@ export class BackgroundThreadBase {
     private _console = new BackgroundConsole();
     protected fs: FileSystem;
 
-    protected constructor(data: InitializationData, fileSystem?: FileSystem) {
+    protected constructor(data: InitializationData, fileSystem?: PyrightFileSystem) {
         setCancellationFolderName(data.cancellationFolderName);
 
         // Stash the base directory into a global variable.
         (global as any).__rootDirectory = data.rootDirectory;
 
-        this.fs = new PyrightFileSystem(fileSystem ?? createFromRealFileSystem(this.getConsole()));
+        this.fs = fileSystem ?? new PyrightFileSystem(createFromRealFileSystem(this.getConsole()));
     }
 
     protected log(level: LogLevel, msg: string) {
@@ -73,7 +73,7 @@ export function createConfigOptionsFrom(jsonObject: any): ConfigOptions {
     const getFileSpec = (fileSpec: any): FileSpec => {
         return {
             wildcardRoot: fileSpec.wildcardRoot,
-            regExp: new RegExp(fileSpec.regExp.source),
+            regExp: new RegExp(fileSpec.regExp.source, fileSpec.regExp.flags),
             hasDirectoryWildcard: fileSpec.hasDirectoryWildcard,
         };
     };

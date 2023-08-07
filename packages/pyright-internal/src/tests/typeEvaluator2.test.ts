@@ -75,7 +75,7 @@ test('Assignment1', () => {
 test('Assignment2', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['assignment2.py']);
 
-    TestUtils.validateResults(analysisResults, 3);
+    TestUtils.validateResults(analysisResults, 2);
 });
 
 test('Assignment3', () => {
@@ -318,6 +318,12 @@ test('Unbound3', () => {
 
 test('Unbound4', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['unbound4.py']);
+
+    TestUtils.validateResults(analysisResults, 2);
+});
+
+test('Unbound5', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['unbound5.py']);
 
     TestUtils.validateResults(analysisResults, 2);
 });
@@ -653,6 +659,18 @@ test('Solver26', () => {
     TestUtils.validateResults(analysisResults, 0);
 });
 
+test('Solver27', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['solver27.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('Solver28', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['solver28.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
 test('SolverScoring1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['solverScoring1.py']);
 
@@ -721,6 +739,12 @@ test('SolverHigherOrder7', () => {
 
 test('SolverHigherOrder8', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['solverHigherOrder8.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('SolverHigherOrder9', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['solverHigherOrder9.py']);
 
     TestUtils.validateResults(analysisResults, 0);
 });
@@ -1007,6 +1031,12 @@ test('GenericType44', () => {
     TestUtils.validateResults(analysisResults, 0);
 });
 
+test('GenericType45', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['genericType45.py']);
+
+    TestUtils.validateResults(analysisResults, 6);
+});
+
 test('Protocol1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['protocol1.py']);
 
@@ -1269,6 +1299,12 @@ test('Protocol43', () => {
     TestUtils.validateResults(analysisResults, 0);
 });
 
+test('Protocol44', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['protocol44.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
 test('TypedDict1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typedDict1.py']);
 
@@ -1402,7 +1438,9 @@ test('TypedDict22', () => {
 });
 
 test('TypedDictInline1', () => {
-    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typedDictInline1.py']);
+    const configOptions = new ConfigOptions('.');
+    configOptions.diagnosticRuleSet.enableExperimentalFeatures = true;
 
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typedDictInline1.py'], configOptions);
     TestUtils.validateResults(analysisResults, 8);
 });

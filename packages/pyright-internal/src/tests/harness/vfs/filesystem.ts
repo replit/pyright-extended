@@ -10,18 +10,12 @@
 import { Dirent, ReadStream, WriteStream } from 'fs';
 import { URI } from 'vscode-uri';
 
-import {
-    FileSystem,
-    FileWatcher,
-    FileWatcherEventHandler,
-    FileWatcherEventType,
-    MkDirOptions,
-    TmpfileOptions,
-} from '../../../common/fileSystem';
+import { FileSystem, MkDirOptions, TmpfileOptions } from '../../../common/fileSystem';
 import * as pathUtil from '../../../common/pathUtils';
 import { bufferFrom, createIOError } from '../utils';
 import { Metadata, SortedMap, closeIterator, getIterator, nextResult } from './../utils';
 import { ValidationFlags, validate } from './pathValidation';
+import { FileWatcher, FileWatcherEventHandler, FileWatcherEventType } from '../../../common/fileWatcher';
 
 export const MODULE_PATH = pathUtil.normalizeSlashes('/');
 
@@ -459,8 +453,15 @@ export class TestFileSystem implements FileSystem {
         }
     }
 
-    getFileListing(): string {
+    getFileListing(filter?: (p: string) => boolean): string {
         let result = '';
+
+        const addToResult = (path: string, add: string) => {
+            if (!filter || filter(path)) {
+                result += add;
+            }
+        };
+
         const printLinks = (dirname: string | undefined, links: SortedMap<string, Inode>) => {
             const iterator = getIterator(links);
             try {
@@ -469,16 +470,16 @@ export class TestFileSystem implements FileSystem {
                     const path = dirname ? pathUtil.combinePaths(dirname, name) : name;
                     const marker = pathUtil.comparePaths(this._cwd, path, this.ignoreCase) === 0 ? '*' : ' ';
                     if (result) {
-                        result += '\n';
+                        addToResult(path, '\n');
                     }
-                    result += marker;
+                    addToResult(path, marker);
                     if (isDirectory(node)) {
-                        result += pathUtil.ensureTrailingDirectorySeparator(path);
+                        addToResult(path, pathUtil.ensureTrailingDirectorySeparator(path));
                         printLinks(path, this._getLinks(node));
                     } else if (isFile(node)) {
-                        result += path;
+                        addToResult(path, path);
                     } else if (isSymlink(node)) {
-                        result += `${path} -> ${node.symlink}`;
+                        addToResult(path, `${path} -> ${node.symlink}`);
                     }
                 }
             } finally {
@@ -492,8 +493,8 @@ export class TestFileSystem implements FileSystem {
     /**
      * Print diagnostic information about the structure of the file system to the console.
      */
-    debugPrint(): void {
-        console.log(this.getFileListing());
+    debugPrint(filter?: (p: string) => boolean): void {
+        console.log(this.getFileListing(filter));
     }
 
     // POSIX API (aligns with NodeJS "fs" module API)

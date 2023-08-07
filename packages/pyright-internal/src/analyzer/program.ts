@@ -53,6 +53,7 @@ import { createTypeEvaluatorWithTracker } from './typeEvaluatorWithTracker';
 import { PrintTypeFlags } from './typePrinter';
 import { TypeStubWriter } from './typeStubWriter';
 import { Type } from './types';
+import { FileSystem } from '../common/fileSystem';
 
 const _maxImportDepth = 256;
 
@@ -113,6 +114,49 @@ interface UpdateImportInfo {
 
 export type PreCheckCallback = (parseResults: ParseResults, evaluator: TypeEvaluator) => void;
 
+export interface ISourceFileFactory {
+    createSourceFile(
+        fs: FileSystem,
+        filePath: string,
+        moduleName: string,
+        isThirdPartyImport: boolean,
+        isThirdPartyPyTypedPresent: boolean,
+        editMode: boolean,
+        console?: ConsoleInterface,
+        logTracker?: LogTracker,
+        realFilePath?: string,
+        ipythonMode?: IPythonMode
+    ): SourceFile;
+}
+
+const DefaultSourceFileFactory: ISourceFileFactory = {
+    createSourceFile(
+        fs: FileSystem,
+        filePath: string,
+        moduleName: string,
+        isThirdPartyImport: boolean,
+        isThirdPartyPyTypedPresent: boolean,
+        editMode: boolean,
+        console?: ConsoleInterface,
+        logTracker?: LogTracker,
+        realFilePath?: string,
+        ipythonMode?: IPythonMode
+    ) {
+        return new SourceFile(
+            fs,
+            filePath,
+            moduleName,
+            isThirdPartyImport,
+            isThirdPartyPyTypedPresent,
+            editMode,
+            console,
+            logTracker,
+            realFilePath,
+            ipythonMode
+        );
+    },
+};
+
 export interface OpenFileOptions {
     isTracked: boolean;
     ipythonMode: IPythonMode;
@@ -144,14 +188,15 @@ export class Program {
 
     private _parsedFileCount = 0;
     private _preCheckCallback: PreCheckCallback | undefined;
-
     private _isEditMode = false;
+    private _sourceFileFactory: ISourceFileFactory;
 
     constructor(
         initialImportResolver: ImportResolver,
         initialConfigOptions: ConfigOptions,
         console?: ConsoleInterface,
         logTracker?: LogTracker,
+        sourceFileFactory?: ISourceFileFactory,
         private _disableChecker?: boolean,
         cacheManager?: CacheManager,
         id?: string
@@ -160,6 +205,7 @@ export class Program {
         this._logTracker = logTracker ?? new LogTracker(console, 'FG');
         this._importResolver = initialImportResolver;
         this._configOptions = initialConfigOptions;
+        this._sourceFileFactory = sourceFileFactory ?? DefaultSourceFileFactory;
 
         this._cacheManager = cacheManager ?? new CacheManager();
         this._cacheManager.registerCacheOwner(this);
@@ -333,7 +379,7 @@ export class Program {
             return sourceFileInfo.sourceFile;
         }
 
-        const sourceFile = new SourceFile(
+        const sourceFile = this._sourceFileFactory.createSourceFile(
             this.fileSystem,
             filePath,
             importName,
@@ -364,7 +410,7 @@ export class Program {
         let sourceFileInfo = this.getSourceFileInfo(filePath);
         if (!sourceFileInfo) {
             const importName = this._getImportNameForFile(filePath);
-            const sourceFile = new SourceFile(
+            const sourceFile = this._sourceFileFactory.createSourceFile(
                 this.fileSystem,
                 filePath,
                 importName,
@@ -1037,11 +1083,14 @@ export class Program {
         for (let i = 0; i < this._sourceFileList.length; ) {
             const fileInfo = this._sourceFileList[i];
             if (!this._isFileNeeded(fileInfo)) {
-                fileDiagnostics.push({
-                    filePath: fileInfo.sourceFile.getFilePath(),
-                    version: fileInfo.sourceFile.getClientVersion(),
-                    diagnostics: [],
-                });
+                // Clear only if there are any errors for this file.
+                if (fileInfo.diagnosticsVersion !== undefined) {
+                    fileDiagnostics.push({
+                        filePath: fileInfo.sourceFile.getFilePath(),
+                        version: fileInfo.sourceFile.getClientVersion(),
+                        diagnostics: [],
+                    });
+                }
 
                 fileInfo.sourceFile.prepareForClose();
                 this._removeSourceFileFromListAndMap(fileInfo.sourceFile.getFilePath(), i);
@@ -1062,11 +1111,14 @@ export class Program {
                     if (!this._isFileNeeded(importedFile)) {
                         const indexToRemove = this._sourceFileList.findIndex((fi) => fi === importedFile);
                         if (indexToRemove >= 0 && indexToRemove < i) {
-                            fileDiagnostics.push({
-                                filePath: importedFile.sourceFile.getFilePath(),
-                                version: importedFile.sourceFile.getClientVersion(),
-                                diagnostics: [],
-                            });
+                            // Clear if there are any errors for this import.
+                            if (importedFile.diagnosticsVersion !== undefined) {
+                                fileDiagnostics.push({
+                                    filePath: importedFile.sourceFile.getFilePath(),
+                                    version: importedFile.sourceFile.getClientVersion(),
+                                    diagnostics: [],
+                                });
+                            }
 
                             importedFile.sourceFile.prepareForClose();
                             this._removeSourceFileFromListAndMap(importedFile.sourceFile.getFilePath(), indexToRemove);
@@ -1546,7 +1598,7 @@ export class Program {
 
     private _createInterimFileInfo(filePath: string) {
         const importName = this._getImportNameForFile(filePath);
-        const sourceFile = new SourceFile(
+        const sourceFile = this._sourceFileFactory.createSourceFile(
             this.fileSystem,
             filePath,
             importName,
@@ -1975,9 +2027,14 @@ export class Program {
         const dependentFiles = [];
         for (let i = startIndex; i < chainedByList.length; i++) {
             const file = chainedByList[i];
+            const parseResults = file?.sourceFile.getParseResults();
+            if (!parseResults) {
+                continue;
+            }
 
-            const parseResults = file.sourceFile.getParseResults();
-            if (parseResults) {
+            // We might not have the file info if binding failed for whatever reasons.
+            const fileInfo = AnalyzerNodeInfo.getFileInfo(parseResults.parseTree);
+            if (fileInfo && fileInfo.accessedSymbolSet) {
                 dependentFiles.push(parseResults);
             }
         }

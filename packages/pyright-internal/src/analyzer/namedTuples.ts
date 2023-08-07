@@ -136,6 +136,7 @@ export function createNamedTupleType(
     if (ParseTreeUtils.isAssignmentToDefaultsFollowingNamedTuple(errorNode)) {
         constructorType.details.flags |= FunctionTypeFlags.DisableDefaultChecks;
     }
+    constructorType.details.typeVarScopeId = classType.details.typeVarScopeId;
     FunctionType.addParameter(constructorType, {
         category: ParameterCategory.Simple,
         name: 'cls',
@@ -452,7 +453,7 @@ function renameKeyword(
     index: number
 ): string {
     // Determine whether the name is a keyword in python.
-    const isKeyword = Tokenizer.isKeyword(name);
+    const isKeyword = Tokenizer.isPythonKeyword(name);
 
     if (!isKeyword) {
         // No rename necessary.

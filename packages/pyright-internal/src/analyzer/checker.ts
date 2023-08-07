@@ -656,7 +656,7 @@ export class Checker extends ParseTreeWalker {
             // Verify common dunder signatures.
             this._validateDunderSignatures(node, functionTypeResult.functionType, containingClassNode !== undefined);
 
-            // Verify TypeGuard or StrictTypeGuard functions.
+            // Verify TypeGuard functions.
             this._validateTypeGuardFunction(node, functionTypeResult.functionType, containingClassNode !== undefined);
 
             this._validateFunctionTypeVarUsage(node, functionTypeResult);
@@ -2500,9 +2500,7 @@ export class Checker extends ParseTreeWalker {
             /* diag */ undefined,
             new TypeVarContext(getTypeVarScopeId(functionType)),
             /* srcTypeVarContext */ undefined,
-            AssignTypeFlags.SkipSolveTypeVars |
-                AssignTypeFlags.SkipFunctionReturnTypeCheck |
-                AssignTypeFlags.OverloadOverlapCheck
+            AssignTypeFlags.SkipFunctionReturnTypeCheck | AssignTypeFlags.OverloadOverlapCheck
         );
     }
 
@@ -4211,10 +4209,7 @@ export class Checker extends ParseTreeWalker {
             return;
         }
 
-        const isNormalTypeGuard = ClassType.isBuiltIn(returnType, 'TypeGuard');
-        const isStrictTypeGuard = ClassType.isBuiltIn(returnType, 'StrictTypeGuard');
-
-        if (!isNormalTypeGuard && !isStrictTypeGuard) {
+        if (!ClassType.isBuiltIn(returnType, 'TypeGuard')) {
             return;
         }
 
@@ -4237,35 +4232,6 @@ export class Checker extends ParseTreeWalker {
                 Localizer.Diagnostic.typeGuardParamCount(),
                 node.name
             );
-        }
-
-        if (isStrictTypeGuard) {
-            const typeGuardType = returnType.typeArguments[0];
-
-            // Determine the type of the first parameter.
-            const paramIndex = isMethod && !FunctionType.isStaticMethod(functionType) ? 1 : 0;
-            if (paramIndex >= functionType.details.parameters.length) {
-                return;
-            }
-
-            const paramType = FunctionType.getEffectiveParameterType(functionType, paramIndex);
-
-            // Verify that the typeGuardType is a narrower type than the paramType.
-            if (!this._evaluator.assignType(paramType, typeGuardType)) {
-                const returnAnnotation =
-                    node.returnTypeAnnotation || node.functionAnnotationComment?.returnTypeAnnotation;
-                if (returnAnnotation) {
-                    this._evaluator.addDiagnostic(
-                        this._fileInfo.diagnosticRuleSet.reportGeneralTypeIssues,
-                        DiagnosticRule.reportGeneralTypeIssues,
-                        Localizer.Diagnostic.strictTypeGuardReturnType().format({
-                            type: this._evaluator.printType(paramType),
-                            returnType: this._evaluator.printType(typeGuardType),
-                        }),
-                        returnAnnotation
-                    );
-                }
-            }
         }
     }
 
@@ -4319,38 +4285,16 @@ export class Checker extends ParseTreeWalker {
             let declaredReturnType = functionType.details.declaredReturnType;
 
             if (declaredReturnType) {
-                if (isUnknown(declaredReturnType)) {
-                    this._evaluator.addDiagnostic(
-                        this._fileInfo.diagnosticRuleSet.reportUnknownVariableType,
-                        DiagnosticRule.reportUnknownVariableType,
-                        Localizer.Diagnostic.declaredReturnTypeUnknown(),
-                        returnAnnotation
-                    );
-                } else if (isPartlyUnknown(declaredReturnType)) {
-                    this._evaluator.addDiagnostic(
-                        this._fileInfo.diagnosticRuleSet.reportUnknownVariableType,
-                        DiagnosticRule.reportUnknownVariableType,
-                        Localizer.Diagnostic.declaredReturnTypePartiallyUnknown().format({
-                            returnType: this._evaluator.printType(declaredReturnType, { expandTypeAlias: true }),
-                        }),
-                        returnAnnotation
-                    );
-                }
+                this._reportUnknownReturnResult(node, declaredReturnType);
 
-                const diag = new DiagnosticAddendum();
                 if (
                     isTypeVar(declaredReturnType) &&
                     declaredReturnType.details.declaredVariance === Variance.Contravariant
                 ) {
-                    diag.addMessage(
-                        Localizer.DiagnosticAddendum.typeVarIsContravariant().format({
-                            name: TypeVarType.getReadableName(declaredReturnType),
-                        })
-                    );
                     this._evaluator.addDiagnostic(
                         this._fileInfo.diagnosticRuleSet.reportGeneralTypeIssues,
                         DiagnosticRule.reportGeneralTypeIssues,
-                        Localizer.Diagnostic.returnTypeContravariant() + diag.getString(),
+                        Localizer.Diagnostic.returnTypeContravariant(),
                         returnAnnotation
                     );
                 }
@@ -4369,7 +4313,11 @@ export class Checker extends ParseTreeWalker {
                     // If the function consists entirely of "...", assume that it's
                     // an abstract method or a protocol method and don't require that
                     // the return type matches. This check can also be skipped for an overload.
-                    if (!ParseTreeUtils.isSuiteEmpty(node.suite) && !FunctionType.isOverloaded(functionType)) {
+                    if (
+                        !ParseTreeUtils.isSuiteEmpty(node.suite) &&
+                        !FunctionType.isOverloaded(functionType) &&
+                        !FunctionType.isAsync(functionType)
+                    ) {
                         this._evaluator.addDiagnostic(
                             this._fileInfo.diagnosticRuleSet.reportGeneralTypeIssues,
                             DiagnosticRule.reportGeneralTypeIssues,
@@ -4402,23 +4350,27 @@ export class Checker extends ParseTreeWalker {
             }
         } else {
             const inferredReturnType = this._evaluator.getFunctionInferredReturnType(functionType);
-            if (isUnknown(inferredReturnType)) {
-                this._evaluator.addDiagnostic(
-                    this._fileInfo.diagnosticRuleSet.reportUnknownParameterType,
-                    DiagnosticRule.reportUnknownParameterType,
-                    Localizer.Diagnostic.returnTypeUnknown(),
-                    node.name
-                );
-            } else if (isPartlyUnknown(inferredReturnType)) {
-                this._evaluator.addDiagnostic(
-                    this._fileInfo.diagnosticRuleSet.reportUnknownParameterType,
-                    DiagnosticRule.reportUnknownParameterType,
-                    Localizer.Diagnostic.returnTypePartiallyUnknown().format({
-                        returnType: this._evaluator.printType(inferredReturnType, { expandTypeAlias: true }),
-                    }),
-                    node.name
-                );
-            }
+            this._reportUnknownReturnResult(node, inferredReturnType);
+        }
+    }
+
+    private _reportUnknownReturnResult(node: FunctionNode, returnType: Type) {
+        if (isUnknown(returnType)) {
+            this._evaluator.addDiagnostic(
+                this._fileInfo.diagnosticRuleSet.reportUnknownParameterType,
+                DiagnosticRule.reportUnknownParameterType,
+                Localizer.Diagnostic.returnTypeUnknown(),
+                node.name
+            );
+        } else if (isPartlyUnknown(returnType)) {
+            this._evaluator.addDiagnostic(
+                this._fileInfo.diagnosticRuleSet.reportUnknownParameterType,
+                DiagnosticRule.reportUnknownParameterType,
+                Localizer.Diagnostic.returnTypePartiallyUnknown().format({
+                    returnType: this._evaluator.printType(returnType, { expandTypeAlias: true }),
+                }),
+                node.name
+            );
         }
     }
 

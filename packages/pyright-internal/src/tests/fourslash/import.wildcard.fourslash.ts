@@ -22,5 +22,5 @@
 // @ts-ignore
 await helper.verifyDiagnostics({
     imprt: { category: 'warning', message: `\`from testpkg import *\` used; unable to detect undefined names` },
-    marker1: { category: 'warning', message: `\`submod\` may be undefined, or defined from star imports: \`testpkg\`` },
+    marker1: { category: 'warning', message: `\`submod\` may be undefined, or defined from star imports` },
 });

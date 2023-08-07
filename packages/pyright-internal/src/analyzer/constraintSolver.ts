@@ -406,12 +406,19 @@ export function assignTypeToTypeVar(
         if (isEffectivelyInstantiable(adjSrcType)) {
             adjSrcType = convertToInstance(adjSrcType, /* includeSubclasses */ false);
         } else {
-            diag?.addMessage(
-                Localizer.DiagnosticAddendum.typeAssignmentMismatch().format(
-                    evaluator.printSrcDestTypes(srcType, destType)
-                )
-            );
-            return false;
+            // Handle the case of a TypeVar that has a bound of `type`.
+            const concreteAdjSrcType = evaluator.makeTopLevelTypeVarsConcrete(adjSrcType);
+
+            if (isEffectivelyInstantiable(concreteAdjSrcType)) {
+                adjSrcType = convertToInstance(concreteAdjSrcType);
+            } else {
+                diag?.addMessage(
+                    Localizer.DiagnosticAddendum.typeAssignmentMismatch().format(
+                        evaluator.printSrcDestTypes(srcType, destType)
+                    )
+                );
+                return false;
+            }
         }
     } else if (
         isTypeVar(srcType) &&
@@ -933,7 +940,7 @@ export function populateTypeVarContextBasedOnExpectedType(
         typeVar.details.isSynthesized = true;
         typeVar.details.synthesizedIndex = index;
         typeVar.details.isExemptFromBoundCheck = true;
-        return typeVar;
+        return TypeVarType.cloneAsInScopePlaceholder(typeVar);
     });
 
     const specializedType = ClassType.cloneForSpecialization(type, typeArgs, /* isTypeArgumentExplicit */ true);
@@ -951,7 +958,31 @@ export function populateTypeVarContextBasedOnExpectedType(
         let isResultValid = true;
 
         synthExpectedTypeArgs.forEach((typeVar, index) => {
-            const synthTypeVar = syntheticTypeVarContext.getPrimarySignature().getTypeVarType(typeVar);
+            let synthTypeVar = syntheticTypeVarContext.getPrimarySignature().getTypeVarType(typeVar);
+            const otherSubtypes: Type[] = [];
+
+            // If the resulting type is a union, try to find a matching type var and move
+            // the remaining subtypes to the "otherSubtypes" array.
+            if (synthTypeVar && isUnion(synthTypeVar)) {
+                let foundSynthTypeVar: TypeVarType | undefined;
+
+                synthTypeVar.subtypes.forEach((subtype) => {
+                    if (
+                        isTypeVar(subtype) &&
+                        subtype.details.isSynthesized &&
+                        subtype.details.synthesizedIndex !== undefined &&
+                        !foundSynthTypeVar
+                    ) {
+                        foundSynthTypeVar = subtype;
+                    } else {
+                        otherSubtypes.push(subtype);
+                    }
+                });
+
+                if (foundSynthTypeVar) {
+                    synthTypeVar = foundSynthTypeVar;
+                }
+            }
 
             // Is this one of the synthesized type vars we allocated above? If so,
             // the type arg that corresponds to this type var maps back to the target type.
@@ -965,6 +996,10 @@ export function populateTypeVarContextBasedOnExpectedType(
                     ClassType.getTypeParameters(specializedType)[synthTypeVar.details.synthesizedIndex];
                 if (index < expectedTypeArgs.length) {
                     let typeArgValue: Type | undefined = transformPossibleRecursiveTypeAlias(expectedTypeArgs[index]);
+
+                    if (otherSubtypes.length > 0) {
+                        typeArgValue = combineTypes([typeArgValue, ...otherSubtypes]);
+                    }
 
                     if (liveTypeVarScopes) {
                         typeArgValue = transformExpectedType(typeArgValue, liveTypeVarScopes, usageOffset);
