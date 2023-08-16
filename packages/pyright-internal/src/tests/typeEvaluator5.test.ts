@@ -109,7 +109,7 @@ test('TypeAliasStatement1', () => {
     configOptions.defaultPythonVersion = PythonVersion.V3_12;
 
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typeAliasStatement1.py'], configOptions);
-    TestUtils.validateResults(analysisResults, 3);
+    TestUtils.validateResults(analysisResults, 7);
 });
 
 test('TypeAliasStatement2', () => {
@@ -143,6 +143,16 @@ test('TypeAliasStatement4', () => {
 test('Hashability1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['hashability1.py']);
     TestUtils.validateResults(analysisResults, 10);
+});
+
+test('Hashability2', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['hashability2.py']);
+    TestUtils.validateResults(analysisResults, 6);
+});
+
+test('Hashability3', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['hashability3.py']);
+    TestUtils.validateResults(analysisResults, 1);
 });
 
 test('Override1', () => {
@@ -305,5 +315,5 @@ test('TypedDictReadOnly2', () => {
     configOptions.diagnosticRuleSet.enableExperimentalFeatures = true;
 
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typedDictReadOnly2.py'], configOptions);
-    TestUtils.validateResults(analysisResults, 9);
+    TestUtils.validateResults(analysisResults, 8);
 });

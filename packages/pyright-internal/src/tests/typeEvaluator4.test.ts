@@ -98,7 +98,7 @@ test('AssignmentExpr1', () => {
 
 test('AssignmentExpr2', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['assignmentExpr2.py']);
-    TestUtils.validateResults(analysisResults, 4);
+    TestUtils.validateResults(analysisResults, 6);
 });
 
 test('AssignmentExpr3', () => {
@@ -210,6 +210,11 @@ test('Import15', () => {
 test('Import16', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['import16.py']);
     TestUtils.validateResults(analysisResults, 0);
+});
+
+test('Import18', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['import18.py']);
+    TestUtils.validateResults(analysisResults, 2);
 });
 
 test('DunderAll1', () => {
@@ -1048,6 +1053,11 @@ test('ParamSpec45', () => {
     TestUtils.validateResults(results, 0);
 });
 
+test('ParamSpec46', () => {
+    const results = TestUtils.typeAnalyzeSampleFiles(['paramSpec46.py']);
+    TestUtils.validateResults(results, 2);
+});
+
 test('ClassVar1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['classVar1.py']);
 
@@ -1087,7 +1097,7 @@ test('TypeVar2', () => {
 test('TypeVar3', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typeVar3.py']);
 
-    TestUtils.validateResults(analysisResults, 11);
+    TestUtils.validateResults(analysisResults, 12);
 });
 
 test('TypeVar4', () => {

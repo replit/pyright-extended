@@ -94,6 +94,7 @@ import { OperatorType, StringTokenFlags, TokenType } from '../parser/tokenizerTy
 import { AnalyzerFileInfo } from './analyzerFileInfo';
 import * as AnalyzerNodeInfo from './analyzerNodeInfo';
 import { Declaration, DeclarationType, isAliasDeclaration } from './declaration';
+import { getNameNodeForDeclaration } from './declarationUtils';
 import { ImportResolver, ImportedModuleDescriptor, createImportedModuleDescriptor } from './importResolver';
 import { ImportResult, ImportType } from './importResult';
 import { getRelativeModuleName, getTopLevelImports } from './importStatementUtils';
@@ -578,6 +579,7 @@ export class Checker extends ParseTreeWalker {
                 this.walk(param.typeAnnotationComment);
             }
 
+            // Look for method parameters that are typed with TypeVars that have the wrong variance.
             if (functionTypeResult) {
                 const annotationNode = param.typeAnnotation || param.typeAnnotationComment;
                 if (annotationNode && index < functionTypeResult.functionType.details.parameters.length) {
@@ -585,6 +587,7 @@ export class Checker extends ParseTreeWalker {
                     const exemptMethods = ['__init__', '__new__'];
 
                     if (
+                        containingClassNode &&
                         isTypeVar(paramType) &&
                         paramType.details.declaredVariance === Variance.Covariant &&
                         !paramType.details.isSynthesized &&
@@ -1039,6 +1042,7 @@ export class Checker extends ParseTreeWalker {
     override visitYieldFrom(node: YieldFromNode) {
         const yieldFromType = this._evaluator.getType(node.expression) || UnknownType.create();
         let yieldType: Type | undefined;
+        let sendType: Type | undefined;
 
         if (isClassInstance(yieldFromType) && ClassType.isBuiltIn(yieldFromType, 'Coroutine')) {
             // Handle the case of old-style (pre-await) coroutines.
@@ -1054,6 +1058,7 @@ export class Checker extends ParseTreeWalker {
             const generatorTypeArgs = getGeneratorTypeArgs(yieldType);
             if (generatorTypeArgs) {
                 yieldType = generatorTypeArgs.length >= 1 ? generatorTypeArgs[0] : UnknownType.create();
+                sendType = generatorTypeArgs.length >= 2 ? generatorTypeArgs[1] : undefined;
             } else {
                 yieldType =
                     this._evaluator.getTypeOfIterator({ type: yieldFromType }, /* isAsync */ false, node)?.type ??
@@ -1061,7 +1066,7 @@ export class Checker extends ParseTreeWalker {
             }
         }
 
-        this._validateYieldType(node, yieldType);
+        this._validateYieldType(node, yieldType, sendType);
 
         return true;
     }
@@ -1492,11 +1497,14 @@ export class Checker extends ParseTreeWalker {
         }
 
         this._conditionallyReportShadowedImport(node);
+
         if (!node.isWildcardImport) {
             node.imports.forEach((importAs) => {
                 this._evaluator.evaluateTypesForStatement(importAs);
             });
         } else {
+            this._evaluator.evaluateTypesForStatement(node);
+
             const importInfo = AnalyzerNodeInfo.getImportInfo(node.module);
             if (
                 importInfo &&
@@ -2714,7 +2722,7 @@ export class Checker extends ParseTreeWalker {
                     UnknownType.create();
 
                 resultingExceptionType = mapSubtypes(iterableType, (subtype) => {
-                    if (isAnyOrUnknown(subtype)) {
+                    if (isAnyOrUnknown(subtype) || isNever(subtype)) {
                         return subtype;
                     }
 
@@ -5778,7 +5786,7 @@ export class Checker extends ParseTreeWalker {
                                 name: memberName,
                                 className: baseClassAndSymbol.classType.details.name,
                             }) + diagAddendum.getString(),
-                            lastDecl.node
+                            getNameNodeForDeclaration(lastDecl) ?? lastDecl.node
                         );
 
                         const origDecl = getLastTypedDeclaredForSymbol(baseClassAndSymbol.symbol);
@@ -5849,7 +5857,7 @@ export class Checker extends ParseTreeWalker {
                                 name: memberName,
                                 className: baseClassAndSymbol.classType.details.name,
                             }),
-                            lastDecl.node
+                            getNameNodeForDeclaration(lastDecl) ?? lastDecl.node
                         );
 
                         const origDecl = getLastTypedDeclaredForSymbol(baseClassAndSymbol.symbol);
@@ -6176,7 +6184,7 @@ export class Checker extends ParseTreeWalker {
 
     // Determines whether a yield or yield from node is compatible with the
     // return type annotation of the containing function.
-    private _validateYieldType(node: YieldNode | YieldFromNode, yieldType: Type) {
+    private _validateYieldType(node: YieldNode | YieldFromNode, yieldType: Type, sendType?: Type) {
         const enclosingFunctionNode = ParseTreeUtils.getEnclosingFunction(node);
         if (!enclosingFunctionNode || !enclosingFunctionNode.returnTypeAnnotation) {
             return;
@@ -6226,8 +6234,9 @@ export class Checker extends ParseTreeWalker {
             return;
         }
 
+        const generatorTypeArgs = [yieldType, sendType ?? UnknownType.create(), UnknownType.create()];
         const specializedGenerator = ClassType.cloneAsInstance(
-            ClassType.cloneForSpecialization(generatorType, [yieldType], /* isTypeArgumentExplicit */ true)
+            ClassType.cloneForSpecialization(generatorType, generatorTypeArgs, /* isTypeArgumentExplicit */ true)
         );
 
         const diagAddendum = new DiagnosticAddendum();
@@ -6319,7 +6328,7 @@ export class Checker extends ParseTreeWalker {
                 });
 
                 // Were all of the exception types overridden?
-                if (typesOfThisExcept.length === overriddenExceptionCount) {
+                if (typesOfThisExcept.length > 0 && typesOfThisExcept.length === overriddenExceptionCount) {
                     this._evaluator.addDiagnostic(
                         this._fileInfo.diagnosticRuleSet.reportGeneralTypeIssues,
                         DiagnosticRule.reportGeneralTypeIssues,
