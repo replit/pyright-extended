@@ -122,11 +122,12 @@ import { canNavigateToFile } from './languageService/navigationUtils';
 import { ReferencesProvider } from './languageService/referencesProvider';
 import { SignatureHelpProvider } from './languageService/signatureHelpProvider';
 import { Localizer, setLocaleOverride } from './localization/localize';
-import { PyrightFileSystem, SupportUriToPathMapping } from './pyrightFileSystem';
+import { SupportUriToPathMapping } from './pyrightFileSystem';
 import { InitStatus, WellKnownWorkspaceKinds, Workspace, WorkspaceFactory } from './workspaceFactory';
 import { RenameProvider } from './languageService/renameProvider';
 import { WorkspaceSymbolProvider } from './languageService/workspaceSymbolProvider';
 import { formatBufferWithYapf } from '../../pyright-yapf';
+import { ServiceProvider } from './common/serviceProvider';
 
 export interface ServerSettings {
     venvPath?: string | undefined;
@@ -192,7 +193,7 @@ export interface ServerOptions {
     rootDirectory: string;
     version: string;
     cancellationProvider: CancellationProvider;
-    fileSystem: PyrightFileSystem;
+    serviceProvider: ServiceProvider;
     fileWatcherHandler: FileWatcherHandler;
     fileWatcherProvider?: FileWatcherProvider;
     maxAnalysisTimeInForeground?: MaxAnalysisTime;
@@ -355,7 +356,6 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
     constructor(
         protected serverOptions: ServerOptions,
         protected connection: Connection,
-        readonly console: ConsoleInterface,
         uriParserFactory = (fs: FileSystem) => new UriParser(fs)
     ) {
         // Stash the base directory into a global variable.
@@ -372,8 +372,8 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
 
         this.cacheManager = new CacheManager();
 
-        this.uriMapper = this.serverOptions.fileSystem;
-        this.fs = this.serverOptions.fileSystem;
+        this.uriMapper = this.serverOptions.serviceProvider.fs();
+        this.fs = this.serverOptions.serviceProvider.fs();
 
         this.uriParser = uriParserFactory(this.fs);
 
@@ -404,6 +404,10 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
 
         // Setup extensions
         Extensions.createLanguageServiceExtensions(this);
+    }
+
+    get console(): ConsoleInterface {
+        return this.serverOptions.serviceProvider.console();
     }
 
     // Provides access to the client's window.
@@ -600,7 +604,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
 
     protected createBackgroundAnalysisProgram(
         serviceId: string,
-        console: ConsoleInterface,
+        serviceProvider: ServiceProvider,
         configOptions: ConfigOptions,
         importResolver: ImportResolver,
         backgroundAnalysis?: BackgroundAnalysisBase,
@@ -609,7 +613,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
     ): BackgroundAnalysisProgram {
         return new BackgroundAnalysisProgram(
             serviceId,
-            console,
+            serviceProvider,
             configOptions,
             importResolver,
             backgroundAnalysis,

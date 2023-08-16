@@ -854,6 +854,8 @@ export namespace Localizer {
         export const typeAliasIllegalExpressionForm = () => getRawString('Diagnostic.typeAliasIllegalExpressionForm');
         export const typeAliasIsRecursiveDirect = () =>
             new ParameterizedString<{ name: string }>(getRawString('Diagnostic.typeAliasIsRecursiveDirect'));
+        export const typeAliasNotAllowed = () =>
+            new ParameterizedString<{ name: string }>(getRawString('Diagnostic.typeAliasNotAllowed'));
         export const typeAliasNotInModuleOrClass = () => getRawString('Diagnostic.typeAliasNotInModuleOrClass');
         export const typeAliasRedeclared = () =>
             new ParameterizedString<{ name: string }>(getRawString('Diagnostic.typeAliasRedeclared'));
@@ -886,6 +888,10 @@ export namespace Localizer {
         export const typeAssignmentMismatch = () =>
             new ParameterizedString<{ sourceType: string; destType: string }>(
                 getRawString('Diagnostic.typeAssignmentMismatch')
+            );
+        export const typeAssignmentMismatchWildcard = () =>
+            new ParameterizedString<{ name: string; sourceType: string; destType: string }>(
+                getRawString('Diagnostic.typeAssignmentMismatchWildcard')
             );
         export const typeCallNotAllowed = () => getRawString('Diagnostic.typeCallNotAllowed');
         export const typeCommentDeprecated = () => getRawString('Diagnostic.typeCommentDeprecated');
@@ -1188,6 +1194,8 @@ export namespace Localizer {
             new ParameterizedString<{ name: string }>(getRawString('DiagnosticAddendum.memberIsInvariant'));
         export const memberIsNotFinalInProtocol = () =>
             new ParameterizedString<{ name: string }>(getRawString('DiagnosticAddendum.memberIsNotFinalInProtocol'));
+        export const memberIsWritableInProtocol = () =>
+            new ParameterizedString<{ name: string }>(getRawString('DiagnosticAddendum.memberIsWritableInProtocol'));
         export const memberSetClassVar = () =>
             new ParameterizedString<{ name: string }>(getRawString('DiagnosticAddendum.memberSetClassVar'));
         export const memberTypeMismatch = () =>

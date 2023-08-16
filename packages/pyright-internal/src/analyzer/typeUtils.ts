@@ -741,6 +741,7 @@ export function transformPossibleRecursiveTypeAlias(type: Type | undefined): Typ
                     type.typeAliasInfo.name,
                     type.typeAliasInfo.fullName,
                     type.typeAliasInfo.typeVarScopeId,
+                    type.typeAliasInfo.isPep695Syntax,
                     type.typeAliasInfo.typeParameters,
                     type.typeAliasInfo.typeArguments
                 );
@@ -995,6 +996,29 @@ export function isUnboundedTupleClass(type: ClassType) {
         type.tupleTypeArguments &&
         type.tupleTypeArguments.some((t) => t.isUnbounded || isUnpackedVariadicTypeVar(t.type))
     );
+}
+
+// Indicates whether the specified index is within range and its type is unambiguous
+// in that it doesn't involve any element ranges that are of indeterminate length.
+export function isTupleIndexUnambiguous(type: ClassType, index: number) {
+    if (!type.tupleTypeArguments) {
+        return false;
+    }
+
+    if (index < 0) {
+        if (isUnboundedTupleClass(type) || type.tupleTypeArguments.length + index < 0) {
+            return false;
+        }
+    }
+
+    let unambiguousIndexLimit = type.tupleTypeArguments.findIndex(
+        (t) => t.isUnbounded || isUnpackedVariadicTypeVar(t.type)
+    );
+    if (unambiguousIndexLimit < 0) {
+        unambiguousIndexLimit = type.tupleTypeArguments.length;
+    }
+
+    return index < unambiguousIndexLimit;
 }
 
 // Partially specializes a type within the context of a specified
@@ -2072,6 +2096,7 @@ export function convertToInstance(type: Type, includeSubclasses = true): Type {
             type.typeAliasInfo.name,
             type.typeAliasInfo.fullName,
             type.typeAliasInfo.typeVarScopeId,
+            type.typeAliasInfo.isPep695Syntax,
             type.typeAliasInfo.typeParameters,
             type.typeAliasInfo.typeArguments
         );
@@ -2123,6 +2148,7 @@ export function convertToInstantiable(type: Type, includeSubclasses = true): Typ
             type.typeAliasInfo.name,
             type.typeAliasInfo.fullName,
             type.typeAliasInfo.typeVarScopeId,
+            type.typeAliasInfo.isPep695Syntax,
             type.typeAliasInfo.typeParameters,
             type.typeAliasInfo.typeArguments
         );
@@ -3097,6 +3123,7 @@ class TypeVarTransformer {
                         type.typeAliasInfo.name,
                         type.typeAliasInfo.fullName,
                         type.typeAliasInfo.typeVarScopeId,
+                        type.typeAliasInfo.isPep695Syntax,
                         type.typeAliasInfo.typeParameters,
                         typeArgs
                     );
@@ -3258,6 +3285,7 @@ class TypeVarTransformer {
                   type.typeAliasInfo.name,
                   type.typeAliasInfo.fullName,
                   type.typeAliasInfo.typeVarScopeId,
+                  type.typeAliasInfo.isPep695Syntax,
                   type.typeAliasInfo.typeParameters,
                   newTypeArgs
               )
