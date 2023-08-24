@@ -72,3 +72,8 @@ To use `pyright-extended` in VS Code, you must build the extension from source.
 5. If Pyright already exists, remove it, and reload
 6. In extensions, select "Install from VSIX..." and pick the .vsix file from step 2
 7. Make a `main.py`, start typing in code, and you should get context help
+
+# Updating from upstream and publishing 
+1. `git pull upstream main`
+2. `npm run build:lsp`
+3. `npm run publish:lsp` (ensure you have proper NPM permissions)
