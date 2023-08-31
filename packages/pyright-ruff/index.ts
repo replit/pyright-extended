@@ -87,17 +87,11 @@ function convertDiagnostic(diag: RuffDiagnostic): Diagnostic {
 }
 
 // see https://beta.ruff.rs/docs/rules/ for more info
-const INCLUDED_RUFF_CODES = ['E', 'W', 'F', 'I', 'B', 'C4', 'ARG', 'SIM'];
-const IGNORED_RUFF_CODES = ['W291', 'W292', 'W293']; // ignore no newline warnings and trailing whitespace
 function _runRuff(fp: string, buf: string, ...extraArgs: string[]): SpawnSyncReturns<Buffer> {
-    const ruffSelectArgs = INCLUDED_RUFF_CODES.flatMap((code) => ['--select', code]);
-    const ruffIgnoreArgs = IGNORED_RUFF_CODES.flatMap((code) => ['--ignore', code]);
     const args = [
         'check',
         '--stdin-filename',
         fp,
-        ...ruffSelectArgs,
-        ...ruffIgnoreArgs,
         '--quiet',
         '--format=json',
         '--force-exclude',
