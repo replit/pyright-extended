@@ -247,9 +247,11 @@ export namespace Localizer {
         export const awaitNotInAsync = () => getRawString('Diagnostic.awaitNotInAsync');
         export const backticksIllegal = () => getRawString('Diagnostic.backticksIllegal');
         export const baseClassCircular = () => getRawString('Diagnostic.baseClassCircular');
-        export const baseClassInvalid = () => getRawString('Diagnostic.baseClassInvalid');
         export const baseClassFinal = () =>
             new ParameterizedString<{ type: string }>(getRawString('Diagnostic.baseClassFinal'));
+        export const baseClassIncompatible = () =>
+            new ParameterizedString<{ type: string }>(getRawString('Diagnostic.baseClassIncompatible'));
+        export const baseClassInvalid = () => getRawString('Diagnostic.baseClassInvalid');
         export const baseClassMethodTypeIncompatible = () =>
             new ParameterizedString<{ classType: string; name: string }>(
                 getRawString('Diagnostic.baseClassMethodTypeIncompatible')
@@ -516,9 +518,13 @@ export namespace Localizer {
         export const importDepthExceeded = () =>
             new ParameterizedString<{ depth: number }>(getRawString('Diagnostic.importDepthExceeded'));
         export const importResolveFailure = () =>
-            new ParameterizedString<{ importName: string }>(getRawString('Diagnostic.importResolveFailure'));
+            new ParameterizedString<{ importName: string; venv: string }>(
+                getRawString('Diagnostic.importResolveFailure')
+            );
         export const importSourceResolveFailure = () =>
-            new ParameterizedString<{ importName: string }>(getRawString('Diagnostic.importSourceResolveFailure'));
+            new ParameterizedString<{ importName: string; venv: string }>(
+                getRawString('Diagnostic.importSourceResolveFailure')
+            );
         export const importSymbolUnknown = () =>
             new ParameterizedString<{ name: string }>(getRawString('Diagnostic.importSymbolUnknown'));
         export const incompatibleMethodOverride = () =>
@@ -894,6 +900,8 @@ export namespace Localizer {
                 getRawString('Diagnostic.typeAssignmentMismatchWildcard')
             );
         export const typeCallNotAllowed = () => getRawString('Diagnostic.typeCallNotAllowed');
+        export const typeCheckOnly = () =>
+            new ParameterizedString<{ name: string }>(getRawString('Diagnostic.typeCheckOnly'));
         export const typeCommentDeprecated = () => getRawString('Diagnostic.typeCommentDeprecated');
         export const typedDictAccess = () => getRawString('Diagnostic.typedDictAccess');
         export const typedDictBadVar = () => getRawString('Diagnostic.typedDictBadVar');
@@ -1116,6 +1124,14 @@ export namespace Localizer {
             new ParameterizedString<{ types: string }>(getRawString('DiagnosticAddendum.argumentTypes'));
         export const assignToNone = () => getRawString('DiagnosticAddendum.assignToNone');
         export const asyncHelp = () => getRawString('DiagnosticAddendum.asyncHelp');
+        export const baseClassIncompatible = () =>
+            new ParameterizedString<{ baseClass: string; type: string }>(
+                getRawString('DiagnosticAddendum.baseClassIncompatible')
+            );
+        export const baseClassIncompatibleSubclass = () =>
+            new ParameterizedString<{ baseClass: string; subclass: string; type: string }>(
+                getRawString('DiagnosticAddendum.baseClassIncompatibleSubclass')
+            );
         export const baseClassOverriddenType = () =>
             new ParameterizedString<{ baseClass: string; type: string }>(
                 getRawString('DiagnosticAddendum.baseClassOverriddenType')
@@ -1235,8 +1251,7 @@ export namespace Localizer {
         export const overrideNotClassMethod = () => getRawString('DiagnosticAddendum.overrideNotClassMethod');
         export const overrideNotInstanceMethod = () => getRawString('DiagnosticAddendum.overrideNotInstanceMethod');
         export const overrideNotStaticMethod = () => getRawString('DiagnosticAddendum.overrideNotStaticMethod');
-        export const overrideOverloadNoMatch = () =>
-            new ParameterizedString<{ index: number }>(getRawString('DiagnosticAddendum.overrideOverloadNoMatch'));
+        export const overrideOverloadNoMatch = () => getRawString('DiagnosticAddendum.overrideOverloadNoMatch');
         export const overrideOverloadOrder = () => getRawString('DiagnosticAddendum.overrideOverloadOrder');
         export const overrideParamKeywordNoDefault = () =>
             new ParameterizedString<{ name: string }>(getRawString('DiagnosticAddendum.overrideParamKeywordNoDefault'));
@@ -1319,6 +1334,8 @@ export namespace Localizer {
             new ParameterizedString<{ entry: number }>(getRawString('DiagnosticAddendum.tupleEntryTypeMismatch'));
         export const tupleAssignmentMismatch = () =>
             new ParameterizedString<{ type: string }>(getRawString('DiagnosticAddendum.tupleAssignmentMismatch'));
+        export const tupleSizeIndeterminate = () =>
+            new ParameterizedString<{ expected: number }>(getRawString('DiagnosticAddendum.tupleSizeIndeterminate'));
         export const tupleSizeMismatch = () =>
             new ParameterizedString<{ expected: number; received: number }>(
                 getRawString('DiagnosticAddendum.tupleSizeMismatch')

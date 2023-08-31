@@ -540,6 +540,11 @@ test('MemberAccess22', () => {
     TestUtils.validateResults(analysisResults, 0);
 });
 
+test('MemberAccess23', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['memberAccess23.py']);
+    TestUtils.validateResults(analysisResults, 0);
+});
+
 test('DataClassNamedTuple1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['dataclassNamedTuple1.py']);
 
@@ -746,6 +751,12 @@ test('Callable6', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['callable6.py']);
 
     TestUtils.validateResults(analysisResults, 9);
+});
+
+test('Callable7', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['callable7.py']);
+
+    TestUtils.validateResults(analysisResults, 1);
 });
 
 test('Generic1', () => {
@@ -1055,6 +1066,11 @@ test('ParamSpec45', () => {
 
 test('ParamSpec46', () => {
     const results = TestUtils.typeAnalyzeSampleFiles(['paramSpec46.py']);
+    TestUtils.validateResults(results, 2);
+});
+
+test('ParamSpec47', () => {
+    const results = TestUtils.typeAnalyzeSampleFiles(['paramSpec47.py']);
     TestUtils.validateResults(results, 2);
 });
 

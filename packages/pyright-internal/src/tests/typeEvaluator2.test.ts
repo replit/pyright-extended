@@ -671,6 +671,12 @@ test('Solver28', () => {
     TestUtils.validateResults(analysisResults, 0);
 });
 
+test('Solver29', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['solver29.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
 test('SolverScoring1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['solverScoring1.py']);
 
@@ -745,6 +751,12 @@ test('SolverHigherOrder8', () => {
 
 test('SolverHigherOrder9', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['solverHigherOrder9.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('SolverHigherOrder10', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['solverHigherOrder10.py']);
 
     TestUtils.validateResults(analysisResults, 0);
 });
@@ -974,7 +986,7 @@ test('GenericType34', () => {
 test('GenericType35', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['genericType35.py']);
 
-    TestUtils.validateResults(analysisResults, 0);
+    TestUtils.validateResults(analysisResults, 1);
 });
 
 test('GenericType36', () => {
