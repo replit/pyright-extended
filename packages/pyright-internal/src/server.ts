@@ -29,15 +29,15 @@ import { expandPathVariables } from './common/envVarUtils';
 import { FileBasedCancellationProvider } from './common/fileBasedCancellationUtils';
 import { FullAccessHost } from './common/fullAccessHost';
 import { Host } from './common/host';
-import { resolvePaths } from './common/pathUtils';
+import { realCasePath, resolvePaths } from './common/pathUtils';
 import { ProgressReporter } from './common/progressReporter';
 import { WorkspaceFileWatcherProvider, createFromRealFileSystem } from './common/realFileSystem';
-import { LanguageServerBase, ServerSettings } from './languageServerBase';
-import { CodeActionProvider } from './languageService/codeActionProvider';
-import { Workspace } from './workspaceFactory';
-import { PyrightFileSystem } from './pyrightFileSystem';
 import { ServiceProvider } from './common/serviceProvider';
 import { createServiceProvider } from './common/serviceProviderExtensions';
+import { LanguageServerBase, ServerSettings } from './languageServerBase';
+import { CodeActionProvider } from './languageService/codeActionProvider';
+import { PyrightFileSystem } from './pyrightFileSystem';
+import { Workspace } from './workspaceFactory';
 
 const maxAnalysisTimeInForeground = { openFilesTimeInMs: 50, noOpenFilesTimeInMs: 200 };
 
@@ -58,11 +58,12 @@ export class PyrightServer extends LanguageServerBase {
         const fileSystem = createFromRealFileSystem(console, fileWatcherProvider);
         const pyrightFs = new PyrightFileSystem(fileSystem);
         const serviceProvider = createServiceProvider(pyrightFs, console);
+        const realPathRoot = realCasePath(rootDirectory, pyrightFs);
 
         super(
             {
                 productName: 'pyright-extended',
-                rootDirectory,
+                rootDirectory: realPathRoot,
                 version,
                 serviceProvider,
                 fileWatcherHandler: fileWatcherProvider,

@@ -435,6 +435,12 @@ export function assignTypeToTypeVar(
     }
 
     if ((flags & AssignTypeFlags.PopulatingExpectedType) !== 0) {
+        // If we're populating the expected type and the srcType is
+        // Unknown, ignore it.
+        if (isUnknown(adjSrcType)) {
+            return true;
+        }
+
         // If we're populating the expected type, constrain either the
         // narrow type bound, wide type bound or both. Don't overwrite
         // an existing entry.
@@ -835,6 +841,7 @@ function assignTypeToParamSpec(
                     newFunction.details.constructorTypeVarScopeId = srcType.details.constructorTypeVarScopeId;
                     newFunction.details.paramSpecTypeVarScopeId = srcType.details.paramSpecTypeVarScopeId;
                     newFunction.details.docString = srcType.details.docString;
+                    newFunction.details.deprecatedMessage = srcType.details.deprecatedMessage;
                     newFunction.details.paramSpec = srcType.details.paramSpec;
                     typeVarContext.setTypeVarType(destType, newFunction);
                 }

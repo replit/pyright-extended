@@ -160,7 +160,13 @@ export function applyFunctionDecorator(
             }
 
             if (decoratorCallType.details.builtInName === 'deprecated') {
-                undecoratedType.details.deprecatedMessage = getCustomDeprecationMessage(decoratorNode);
+                const deprecationMessage = getCustomDeprecationMessage(decoratorNode);
+                undecoratedType.details.deprecatedMessage = deprecationMessage;
+
+                if (isFunction(inputFunctionType)) {
+                    inputFunctionType.details.deprecatedMessage = deprecationMessage;
+                }
+
                 return inputFunctionType;
             }
         }
@@ -431,14 +437,21 @@ function getTypeOfDecorator(evaluator: TypeEvaluator, node: DecoratorNode, funct
         },
     ];
 
-    const returnType =
-        evaluator.validateCallArguments(
-            node.expression,
-            argList,
-            decoratorTypeResult,
-            /* typeVarContext */ undefined,
-            /* skipUnknownArgCheck */ true
-        ).returnType || UnknownType.create();
+    const callTypeResult = evaluator.validateCallArguments(
+        node.expression,
+        argList,
+        decoratorTypeResult,
+        /* typeVarContext */ undefined,
+        /* skipUnknownArgCheck */ true
+    );
+
+    evaluator.setTypeResultForNode(node, {
+        type: callTypeResult.returnType ?? UnknownType.create(),
+        overloadsUsedForCall: callTypeResult.overloadsUsedForCall,
+        isIncomplete: callTypeResult.isTypeIncomplete,
+    });
+
+    const returnType = callTypeResult.returnType ?? UnknownType.create();
 
     // If the return type is a function that has no annotations
     // and just *args and **kwargs parameters, assume that it
@@ -540,6 +553,21 @@ export function addOverloadsToFunctionType(evaluator: TypeEvaluator, node: Funct
                 overloadedTypes = overloadedTypes.map((overload) => {
                     if (FunctionType.isOverloaded(overload) && !overload.details.docString) {
                         return FunctionType.cloneWithDocString(overload, implementation.details.docString);
+                    }
+                    return overload;
+                });
+            }
+
+            // PEP 702 indicates that if the implementation of an overloaded
+            // function is marked deprecated, all of the overloads should be
+            // treated as deprecated as well.
+            if (implementation && implementation.details.deprecatedMessage !== undefined) {
+                overloadedTypes = overloadedTypes.map((overload) => {
+                    if (FunctionType.isOverloaded(overload) && overload.details.deprecatedMessage === undefined) {
+                        return FunctionType.cloneWithDeprecatedMessage(
+                            overload,
+                            implementation.details.deprecatedMessage
+                        );
                     }
                     return overload;
                 });

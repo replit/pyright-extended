@@ -111,13 +111,17 @@ export const enum ClassMemberLookupFlags {
     // If this flag is set, the instance variables are skipped.
     SkipInstanceVariables = 1 << 3,
 
+    // By default, both class and instance variables are searched.
+    // If this flag is set, the class variables are skipped.
+    SkipClassVariables = 1 << 4,
+
     // By default, the first symbol is returned even if it has only
     // an inferred type associated with it. If this flag is set,
     // the search looks only for symbols with declared types.
-    DeclaredTypesOnly = 1 << 4,
+    DeclaredTypesOnly = 1 << 5,
 
     // Skip the 'type' base class in particular.
-    SkipTypeBaseClass = 1 << 5,
+    SkipTypeBaseClass = 1 << 6,
 }
 
 export const enum ClassIteratorFlags {
@@ -194,6 +198,11 @@ export const enum AssignTypeFlags {
     // default type arguments (typically "Unknown"). This flag skips
     // this step.
     AllowUnspecifiedTypeArguments = 1 << 11,
+
+    // PEP 544 says that if the dest type is a type[Proto] class,
+    // the source must be a "concrete" (non-protocol) class. This
+    // flag skips this check.
+    IgnoreProtocolAssignmentCheck = 1 << 12,
 }
 
 export interface ApplyTypeVarOptions {
@@ -343,15 +352,17 @@ export function makeInferenceContext(
 // Calls a callback for each subtype and combines the results
 // into a final type. It performs no memory allocations if the
 // transformed type is the same as the original.
-export function mapSubtypes(type: Type, callback: (type: Type) => Type | undefined): Type {
+export function mapSubtypes(type: Type, callback: (type: Type) => Type | undefined, sortSubtypes = false): Type {
     if (isUnion(type)) {
-        for (let i = 0; i < type.subtypes.length; i++) {
-            const subtype = type.subtypes[i];
+        const subtypes = sortSubtypes ? sortTypes(type.subtypes) : type.subtypes;
+
+        for (let i = 0; i < subtypes.length; i++) {
+            const subtype = subtypes[i];
             const transformedType = callback(subtype);
 
             // Avoid doing any memory allocations until a change is detected.
             if (subtype !== transformedType) {
-                const typesToCombine: Type[] = type.subtypes.slice(0, i);
+                const typesToCombine: Type[] = subtypes.slice(0, i);
 
                 // Create a helper lambda that accumulates transformed subtypes.
                 const accumulateSubtype = (newSubtype: Type | undefined) => {
@@ -362,8 +373,8 @@ export function mapSubtypes(type: Type, callback: (type: Type) => Type | undefin
 
                 accumulateSubtype(transformedType);
 
-                for (i++; i < type.subtypes.length; i++) {
-                    accumulateSubtype(callback(type.subtypes[i]));
+                for (i++; i < subtypes.length; i++) {
+                    accumulateSubtype(callback(subtypes[i]));
                 }
 
                 const newType = combineTypes(typesToCombine);
@@ -394,7 +405,12 @@ export function sortTypes(types: Type[]): Type[] {
     });
 }
 
-function compareTypes(a: Type, b: Type): number {
+function compareTypes(a: Type, b: Type, recursionCount = 0): number {
+    if (recursionCount > maxTypeRecursionCount) {
+        return 0;
+    }
+    recursionCount++;
+
     if (a.category !== b.category) {
         return b.category - a.category;
     }
@@ -502,7 +518,32 @@ function compareTypes(a: Type, b: Type): number {
             // Sort by class name.
             const aName = a.details.name;
             const bName = (b as ClassType).details.name;
-            return aName < bName ? -1 : aName === bName ? 0 : 1;
+
+            if (aName < bName) {
+                return -1;
+            } else if (aName > bName) {
+                return 1;
+            }
+
+            // Sort by type argument count.
+            const aTypeArgCount = a.typeArguments ? a.typeArguments.length : 0;
+            const bTypeArgCount = bClass.typeArguments ? bClass.typeArguments.length : 0;
+
+            if (aTypeArgCount < bTypeArgCount) {
+                return -1;
+            } else if (aTypeArgCount > bTypeArgCount) {
+                return 1;
+            }
+
+            // Sort by type argument.
+            for (let i = 0; i < aTypeArgCount; i++) {
+                const typeComparison = compareTypes(a.typeArguments![i], bClass.typeArguments![i], recursionCount);
+                if (typeComparison !== 0) {
+                    return typeComparison;
+                }
+            }
+
+            return 0;
         }
 
         case TypeCategory.Module: {
@@ -1404,40 +1445,42 @@ export function* getClassMemberIterator(
             }
 
             // Next look at class members.
-            const symbol = memberFields.get(memberName);
-            if (symbol && symbol.isClassMember()) {
-                const hasDeclaredType = symbol.hasTypedDeclarations();
-                if (!declaredTypesOnly || hasDeclaredType) {
-                    let isInstanceMember = symbol.isInstanceMember();
-                    let isClassMember = true;
+            if ((flags & ClassMemberLookupFlags.SkipClassVariables) === 0) {
+                const symbol = memberFields.get(memberName);
+                if (symbol && symbol.isClassMember()) {
+                    const hasDeclaredType = symbol.hasTypedDeclarations();
+                    if (!declaredTypesOnly || hasDeclaredType) {
+                        let isInstanceMember = symbol.isInstanceMember();
+                        let isClassMember = true;
 
-                    // For data classes and typed dicts, variables that are declared
-                    // within the class are treated as instance variables. This distinction
-                    // is important in cases where a variable is a callable type because
-                    // we don't want to bind it to the instance like we would for a
-                    // class member.
-                    const isDataclass = ClassType.isDataClass(specializedMroClass);
-                    const isTypedDict = ClassType.isTypedDictClass(specializedMroClass);
-                    if (hasDeclaredType && (isDataclass || isTypedDict)) {
-                        const decls = symbol.getDeclarations();
-                        if (decls.length > 0 && decls[0].type === DeclarationType.Variable) {
-                            isInstanceMember = true;
-                            isClassMember = isDataclass;
+                        // For data classes and typed dicts, variables that are declared
+                        // within the class are treated as instance variables. This distinction
+                        // is important in cases where a variable is a callable type because
+                        // we don't want to bind it to the instance like we would for a
+                        // class member.
+                        const isDataclass = ClassType.isDataClass(specializedMroClass);
+                        const isTypedDict = ClassType.isTypedDictClass(specializedMroClass);
+                        if (hasDeclaredType && (isDataclass || isTypedDict)) {
+                            const decls = symbol.getDeclarations();
+                            if (decls.length > 0 && decls[0].type === DeclarationType.Variable) {
+                                isInstanceMember = true;
+                                isClassMember = isDataclass;
+                            }
                         }
-                    }
 
-                    const cm: ClassMember = {
-                        symbol,
-                        isInstanceMember,
-                        isClassMember,
-                        isClassVar: symbol.isClassVar(),
-                        classType: specializedMroClass,
-                        isTypeDeclared: hasDeclaredType,
-                        skippedUndeclaredType,
-                    };
-                    yield cm;
-                } else {
-                    skippedUndeclaredType = true;
+                        const cm: ClassMember = {
+                            symbol,
+                            isInstanceMember,
+                            isClassMember,
+                            isClassVar: symbol.isClassVar(),
+                            classType: specializedMroClass,
+                            isTypeDeclared: hasDeclaredType,
+                            skippedUndeclaredType,
+                        };
+                        yield cm;
+                    } else {
+                        skippedUndeclaredType = true;
+                    }
                 }
             }
         }
@@ -1727,7 +1770,10 @@ export function specializeClassType(type: ClassType): ClassType {
     const typeParams = ClassType.getTypeParameters(type);
 
     typeParams.forEach((typeParam) => {
-        typeVarContext.setTypeVarType(typeParam, UnknownType.create());
+        typeVarContext.setTypeVarType(
+            typeParam,
+            applySolvedTypeVars(typeParam.details.defaultType ?? UnknownType.create(), typeVarContext)
+        );
     });
 
     return applySolvedTypeVars(type, typeVarContext) as ClassType;
@@ -3147,10 +3193,27 @@ class TypeVarTransformer {
             // _pendingTypeVarTransformations set.
             if (!this._isTypeVarScopePending(type.scopeId)) {
                 if (type.details.isParamSpec) {
-                    if (!type.paramSpecAccess) {
-                        const paramSpecValue = this.transformParamSpec(type, recursionCount);
-                        if (paramSpecValue) {
-                            replacementType = convertParamSpecValueToType(paramSpecValue);
+                    let paramSpecWithoutAccess = type;
+
+                    if (type.paramSpecAccess) {
+                        paramSpecWithoutAccess = TypeVarType.cloneForParamSpecAccess(type, /* access */ undefined);
+                    }
+
+                    const paramSpecValue = this.transformParamSpec(paramSpecWithoutAccess, recursionCount);
+                    if (paramSpecValue) {
+                        const paramSpecType = convertParamSpecValueToType(paramSpecValue);
+
+                        if (type.paramSpecAccess) {
+                            if (isParamSpec(paramSpecType)) {
+                                replacementType = TypeVarType.cloneForParamSpecAccess(
+                                    paramSpecType,
+                                    type.paramSpecAccess
+                                );
+                            } else {
+                                replacementType = UnknownType.create();
+                            }
+                        } else {
+                            replacementType = paramSpecType;
                         }
                     }
                 } else {
@@ -3767,19 +3830,6 @@ class ApplySolvedTypeVarsTransformer extends TypeVarTransformer {
         // don't transform that type variable.
         if (typeVar.scopeId && this._typeVarContext.hasSolveForScope(typeVar.scopeId)) {
             let replacement = signatureContext.getTypeVarType(typeVar, !!this._options.useNarrowBoundOnly);
-
-            // If the type is unknown, see if there's a known wide bound that we can use.
-            if (
-                replacement &&
-                isUnknown(replacement) &&
-                !this._options.useNarrowBoundOnly &&
-                this._options.unknownIfNotFound
-            ) {
-                const entry = signatureContext.getTypeVar(typeVar);
-                if (entry?.wideBound) {
-                    replacement = entry?.wideBound;
-                }
-            }
 
             // If there was no narrow bound but there is a wide bound that
             // contains literals or a TypeVar, we'll use the wide bound even if

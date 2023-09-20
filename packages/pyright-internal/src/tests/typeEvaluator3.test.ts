@@ -33,7 +33,7 @@ test('Ellipsis1', () => {
 test('Generator1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['generator1.py']);
 
-    TestUtils.validateResults(analysisResults, 9);
+    TestUtils.validateResults(analysisResults, 12);
 });
 
 test('Generator2', () => {
@@ -760,7 +760,7 @@ test('Classes5', () => {
     // Turn on reportIncompatibleVariableOverride.
     configOptions.diagnosticRuleSet.reportIncompatibleVariableOverride = 'error';
     analysisResults = TestUtils.typeAnalyzeSampleFiles(['classes5.py'], configOptions);
-    TestUtils.validateResults(analysisResults, 32);
+    TestUtils.validateResults(analysisResults, 36);
 });
 
 test('Classes6', () => {
@@ -1331,7 +1331,7 @@ test('Comparison2', () => {
 
     configOptions.diagnosticRuleSet.reportUnnecessaryComparison = 'error';
     const analysisResults2 = TestUtils.typeAnalyzeSampleFiles(['comparison2.py'], configOptions);
-    TestUtils.validateResults(analysisResults2, 10);
+    TestUtils.validateResults(analysisResults2, 11);
 });
 
 test('EmptyContainers1', () => {
@@ -1533,6 +1533,12 @@ test('Constructor27', () => {
 
 test('Constructor28', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['constructor28.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('Constructor29', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['constructor29.py']);
 
     TestUtils.validateResults(analysisResults, 0);
 });

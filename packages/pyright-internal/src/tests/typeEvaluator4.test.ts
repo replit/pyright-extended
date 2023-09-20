@@ -91,6 +91,11 @@ test('Metaclass10', () => {
     TestUtils.validateResults(analysisResults, 0);
 });
 
+test('Metaclass11', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['metaclass11.py']);
+    TestUtils.validateResults(analysisResults, 1);
+});
+
 test('AssignmentExpr1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['assignmentExpr1.py']);
     TestUtils.validateResults(analysisResults, 7);
@@ -307,11 +312,6 @@ test('Overload7', () => {
 test('Overload8', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['overload8.py']);
     TestUtils.validateResults(analysisResults, 2);
-});
-
-test('Overload9', () => {
-    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['overload9.py']);
-    TestUtils.validateResults(analysisResults, 1);
 });
 
 test('Overload10', () => {
@@ -1072,6 +1072,11 @@ test('ParamSpec46', () => {
 test('ParamSpec47', () => {
     const results = TestUtils.typeAnalyzeSampleFiles(['paramSpec47.py']);
     TestUtils.validateResults(results, 2);
+});
+
+test('ParamSpec48', () => {
+    const results = TestUtils.typeAnalyzeSampleFiles(['paramSpec48.py']);
+    TestUtils.validateResults(results, 0);
 });
 
 test('ClassVar1', () => {

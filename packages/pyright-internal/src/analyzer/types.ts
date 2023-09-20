@@ -1632,8 +1632,12 @@ export namespace FunctionType {
                 }),
             ];
 
-            if (!newFunction.details.docString) {
+            if (newFunction.details.docString === undefined) {
                 newFunction.details.docString = paramSpecValue.details.docString;
+            }
+
+            if (newFunction.details.deprecatedMessage === undefined) {
+                newFunction.details.deprecatedMessage = paramSpecValue.details.deprecatedMessage;
             }
 
             newFunction.details.flags =
@@ -1711,6 +1715,17 @@ export namespace FunctionType {
         newFunction.details = { ...type.details };
 
         newFunction.details.docString = docString;
+
+        return newFunction;
+    }
+
+    export function cloneWithDeprecatedMessage(type: FunctionType, deprecatedMessage?: string): FunctionType {
+        const newFunction = TypeBase.cloneType(type);
+
+        // Make a shallow clone of the details.
+        newFunction.details = { ...type.details };
+
+        newFunction.details.deprecatedMessage = deprecatedMessage;
 
         return newFunction;
     }
