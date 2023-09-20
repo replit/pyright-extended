@@ -19,6 +19,7 @@ import {
     CallNode,
     CaseNode,
     ClassNode,
+    DecoratorNode,
     ExpressionNode,
     FunctionNode,
     MatchNode,
@@ -267,6 +268,7 @@ export interface EffectiveTypeResult {
     isIncomplete: boolean;
     includesVariableDecl: boolean;
     includesIllegalTypeAliasDecl: boolean;
+    includesSpeculativeResult: boolean;
     isRecursiveDefinition: boolean;
     evaluationAttempts?: number;
 }
@@ -409,37 +411,41 @@ export const enum MemberAccessFlags {
     // the class are considered.
     AccessClassMembersOnly = 1 << 0,
 
+    // Consider only instance members, not members that could be
+    // class members.
+    AccessInstanceMembersOnly = 1 << 1,
+
     // By default, members of base classes are also searched.
     // Set this flag to consider only the specified class' members.
-    SkipBaseClasses = 1 << 1,
+    SkipBaseClasses = 1 << 2,
 
     // Do not include the "object" base class in the search.
-    SkipObjectBaseClass = 1 << 2,
+    SkipObjectBaseClass = 1 << 3,
 
     // Consider writes to symbols flagged as ClassVars as an error.
-    DisallowClassVarWrites = 1 << 3,
+    DisallowClassVarWrites = 1 << 4,
 
     // Normally __new__ is treated as a static method, but when
     // it is invoked implicitly through a constructor call, it
     // acts like a class method instead.
-    TreatConstructorAsClassMethod = 1 << 4,
+    TreatConstructorAsClassMethod = 1 << 5,
 
     // By default, class member lookups start with the class itself
     // and fall back on the metaclass if it's not found. This option
     // skips the first check.
-    ConsiderMetaclassOnly = 1 << 5,
+    ConsiderMetaclassOnly = 1 << 6,
 
     // If an attribute cannot be found when looking for instance
     // members, normally an attribute access override method
     // (__getattr__, etc.) may provide the missing attribute type.
     // This disables this check.
-    SkipAttributeAccessOverride = 1 << 6,
+    SkipAttributeAccessOverride = 1 << 7,
 
     // Do not include the class itself, only base classes.
-    SkipOriginalClass = 1 << 7,
+    SkipOriginalClass = 1 << 8,
 
     // Do not include the "type" base class in the search.
-    SkipTypeBaseClass = 1 << 8,
+    SkipTypeBaseClass = 1 << 9,
 }
 
 export interface ValidateTypeArgsOptions {
@@ -455,6 +461,7 @@ export interface TypeEvaluator {
 
     getType: (node: ExpressionNode) => Type | undefined;
     getTypeResult: (node: ExpressionNode) => TypeResult | undefined;
+    getTypeResultForDecorator: (node: DecoratorNode) => TypeResult | undefined;
     getCachedType: (node: ExpressionNode) => Type | undefined;
     getTypeOfExpression: (node: ExpressionNode, flags?: EvaluatorFlags, context?: InferenceContext) => TypeResult;
     getTypeOfAnnotation: (node: ExpressionNode, options?: AnnotationTypeOptions) => Type;
@@ -488,7 +495,7 @@ export interface TypeEvaluator {
 
     isAfterNodeReachable: (node: ParseNode) => boolean;
     isNodeReachable: (node: ParseNode, sourceNode?: ParseNode | undefined) => boolean;
-    isAsymmetricDescriptorAssignment: (node: ParseNode) => boolean;
+    isAsymmetricAccessorAssignment: (node: ParseNode) => boolean;
     suppressDiagnostics: (node: ParseNode, callback: () => void) => void;
 
     getDeclarationsForStringNode: (node: StringNode) => Declaration[] | undefined;
@@ -523,6 +530,7 @@ export interface TypeEvaluator {
         conditionFilter: TypeCondition[] | undefined,
         callback: (expandedSubtype: Type, unexpandedSubtype: Type) => Type | undefined
     ) => Type;
+    isTypeSubsumedByOtherType: (type: Type, otherType: Type, allowAnyToSubsume: boolean) => boolean;
     lookUpSymbolRecursive: (node: ParseNode, name: string, honorCodeFlow: boolean) => SymbolWithScope | undefined;
     getDeclaredTypeOfSymbol: (symbol: Symbol) => DeclaredSymbolTypeInfo;
     getEffectiveTypeOfSymbol: (symbol: Symbol) => Type;
@@ -671,7 +679,7 @@ export interface TypeEvaluator {
     disposeEvaluator: () => void;
     useSpeculativeMode: <T>(speculativeNode: ParseNode | undefined, callback: () => T) => T;
     isSpeculativeModeInUse: (node: ParseNode | undefined) => boolean;
-    setTypeForNode: (node: ParseNode, type?: Type, flags?: EvaluatorFlags) => void;
+    setTypeResultForNode: (node: ParseNode, typeResult: TypeResult, flags?: EvaluatorFlags) => void;
 
     checkForCancellation: () => void;
     printControlFlowGraph: (

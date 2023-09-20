@@ -127,7 +127,7 @@ export function createTypedDictType(
         ) {
             usingDictSyntax = true;
 
-            getTypedDictFieldsFromDictSyntax(evaluator, entriesArg.valueExpression, classFields);
+            getTypedDictFieldsFromDictSyntax(evaluator, entriesArg.valueExpression, classFields, /* isInline */ false);
         } else if (entriesArg.name) {
             const entrySet = new Set<string>();
             for (let i = 1; i < argList.length; i++) {
@@ -222,7 +222,7 @@ export function createTypedDictTypeInlined(
     classType.details.baseClasses.push(typedDictClass);
     computeMroLinearization(classType);
 
-    getTypedDictFieldsFromDictSyntax(evaluator, dictNode, classType.details.fields);
+    getTypedDictFieldsFromDictSyntax(evaluator, dictNode, classType.details.fields, /* isInline */ true);
     synthesizeTypedDictClassMethods(evaluator, dictNode, classType, /* isClassFinal */ true);
 
     return classType;
@@ -405,7 +405,7 @@ export function synthesizeTypedDictClassMethods(
             return getOverload;
         }
 
-        function createPopMethods(keyType: Type, valueType: Type) {
+        function createPopMethods(keyType: Type, valueType: Type, isEntryRequired: boolean) {
             const keyParam: FunctionParameter = {
                 category: ParameterCategory.Simple,
                 name: 'k',
@@ -423,14 +423,28 @@ export function synthesizeTypedDictClassMethods(
             FunctionType.addParameter(popOverload2, keyParam);
             popOverload2.details.typeVarScopeId = ParseTreeUtils.getScopeIdForNode(node);
             const defaultTypeVar = createDefaultTypeVar(popOverload2);
+
+            let defaultParamType: Type;
+            let returnType: Type;
+
+            if (isEntryRequired) {
+                // If the entry is required, the type of the default param doesn't matter
+                // because the type will always come from the value.
+                defaultParamType = AnyType.create();
+                returnType = valueType;
+            } else {
+                defaultParamType = combineTypes([valueType, defaultTypeVar]);
+                returnType = defaultParamType;
+            }
+
             FunctionType.addParameter(popOverload2, {
                 category: ParameterCategory.Simple,
                 name: 'default',
                 hasDeclaredType: true,
-                type: defaultTypeVar,
+                type: defaultParamType,
                 hasDefault: true,
             });
-            popOverload2.details.declaredReturnType = combineTypes([valueType, defaultTypeVar]);
+            popOverload2.details.declaredReturnType = returnType;
             return [popOverload1, popOverload2];
         }
 
@@ -507,31 +521,19 @@ export function synthesizeTypedDictClassMethods(
                 createGetMethod(nameLiteralType, entry.valueType, /* includeDefault */ false, entry.isRequired)
             );
 
-            if (entry.isRequired) {
-                getOverloads.push(
-                    createGetMethod(
-                        nameLiteralType,
-                        entry.valueType,
-                        /* includeDefault */ true,
-                        /* isEntryRequired */ true,
-                        /* defaultTypeMatchesField */ true
-                    )
-                );
-            } else {
-                getOverloads.push(
-                    createGetMethod(
-                        nameLiteralType,
-                        entry.valueType,
-                        /* includeDefault */ true,
-                        /* isEntryRequired */ false,
-                        /* defaultTypeMatchesField */ false
-                    )
-                );
-            }
+            getOverloads.push(
+                createGetMethod(
+                    nameLiteralType,
+                    entry.valueType,
+                    /* includeDefault */ true,
+                    /* isEntryRequired */ entry.isRequired,
+                    /* defaultTypeMatchesField */ entry.isRequired
+                )
+            );
 
             // Add a pop method if the entry is not required.
             if (!entry.isRequired && !entry.isReadOnly) {
-                appendArray(popOverloads, createPopMethods(nameLiteralType, entry.valueType));
+                appendArray(popOverloads, createPopMethods(nameLiteralType, entry.valueType, entry.isRequired));
             }
 
             if (!entry.isReadOnly) {
@@ -664,7 +666,8 @@ export function getTypedDictMembersForClass(evaluator: TypeEvaluator, classType:
 function getTypedDictFieldsFromDictSyntax(
     evaluator: TypeEvaluator,
     entryDict: DictionaryNode,
-    classFields: SymbolTable
+    classFields: SymbolTable,
+    isInline: boolean
 ) {
     const entrySet = new Set<string>();
     const fileInfo = AnalyzerNodeInfo.getFileInfo(entryDict);
@@ -700,7 +703,7 @@ function getTypedDictFieldsFromDictSyntax(
             node: entry.keyExpression,
             path: fileInfo.filePath,
             typeAnnotationNode: entry.valueExpression,
-            isRuntimeTypeExpression: true,
+            isRuntimeTypeExpression: !isInline,
             range: convertOffsetsToRange(
                 entry.keyExpression.start,
                 TextRange.getEnd(entry.keyExpression),
@@ -716,7 +719,7 @@ function getTypedDictFieldsFromDictSyntax(
 
     // Set the type in the type cache for the dict node so it doesn't
     // get evaluated again.
-    evaluator.setTypeForNode(entryDict);
+    evaluator.setTypeResultForNode(entryDict, { type: UnknownType.create() });
 }
 
 function getTypedDictMembersForClassRecursive(

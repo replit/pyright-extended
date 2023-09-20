@@ -49,9 +49,11 @@ import {
     isSameWithoutLiteralValue,
     isTypeSame,
     isTypeVar,
+    isUnpackedVariadicTypeVar,
     maxTypeRecursionCount,
     NoneType,
     OverloadedFunctionType,
+    TupleTypeArgument,
     Type,
     TypeBase,
     TypeCategory,
@@ -83,6 +85,7 @@ import {
     lookUpClassMember,
     lookUpObjectMember,
     mapSubtypes,
+    specializeTupleClass,
     transformPossibleRecursiveTypeAlias,
 } from './typeUtils';
 import { TypeVarContext } from './typeVarContext';
@@ -1342,7 +1345,7 @@ function narrowTypeForIsInstance(
                     foundSuperclass = true;
                 }
 
-                // Normally, a type should never be both a subclass or a superclass.
+                // Normally, a type should never be both a subclass and a superclass.
                 // This can happen if either of the class types derives from a
                 // class whose type is unknown (e.g. an import failed). We'll
                 // note this case specially so we don't do any narrowing, which
@@ -1368,7 +1371,7 @@ function narrowTypeForIsInstance(
                                 /* diag */ undefined,
                                 /* destTypeVarContext */ undefined,
                                 /* srcTypeVarContext */ undefined,
-                                AssignTypeFlags.IgnoreTypeVarScope
+                                AssignTypeFlags.IgnoreTypeVarScope | AssignTypeFlags.IgnoreProtocolAssignmentCheck
                             )
                         ) {
                             // If the variable type is a superclass of the isinstance
@@ -1572,7 +1575,16 @@ function narrowTypeForIsInstance(
             for (const filterType of classTypeList) {
                 const concreteFilterType = evaluator.makeTopLevelTypeVarsConcrete(filterType);
 
-                if (evaluator.assignType(varType, convertToInstance(concreteFilterType))) {
+                if (
+                    evaluator.assignType(
+                        varType,
+                        convertToInstance(concreteFilterType),
+                        /* diag */ undefined,
+                        /* destTypeVarContext */ undefined,
+                        /* srcTypeVarContext */ undefined,
+                        AssignTypeFlags.IgnoreTypeVarScope
+                    )
+                ) {
                     // If the filter type is a Callable, use the original type. If the
                     // filter type is a callback protocol, use the filter type.
                     if (isFunction(filterType)) {
@@ -1754,14 +1766,48 @@ function narrowTypeForTupleLength(
         if (
             !isClassInstance(concreteSubtype) ||
             !isTupleClass(concreteSubtype) ||
-            isUnboundedTupleClass(concreteSubtype) ||
             !concreteSubtype.tupleTypeArguments
         ) {
             return subtype;
         }
 
-        const tupleLengthMatches = concreteSubtype.tupleTypeArguments.length === lengthValue;
-        return tupleLengthMatches === isPositiveTest ? subtype : undefined;
+        // If the tuple contains a variadic TypeVar, we can't narrow it.
+        if (concreteSubtype.tupleTypeArguments.some((typeArg) => isUnpackedVariadicTypeVar(typeArg.type))) {
+            return subtype;
+        }
+
+        // If the tuple contains no unbounded elements, then we know its length exactly.
+        if (!concreteSubtype.tupleTypeArguments.some((typeArg) => typeArg.isUnbounded)) {
+            const tupleLengthMatches = concreteSubtype.tupleTypeArguments.length === lengthValue;
+            return tupleLengthMatches === isPositiveTest ? subtype : undefined;
+        }
+
+        // The tuple contains a "...". We'll expand this into as many elements as
+        // necessary to match the lengthValue.
+        const elementsToAdd = lengthValue - concreteSubtype.tupleTypeArguments.length + 1;
+
+        // If the specified length is smaller than the minimum length of this tuple,
+        // we can rule it out for a positive test.
+        if (elementsToAdd < 0) {
+            return isPositiveTest ? undefined : subtype;
+        }
+
+        if (!isPositiveTest) {
+            return subtype;
+        }
+
+        const tupleTypeArgs: TupleTypeArgument[] = [];
+        concreteSubtype.tupleTypeArguments.forEach((typeArg) => {
+            if (!typeArg.isUnbounded) {
+                tupleTypeArgs.push(typeArg);
+            } else {
+                for (let i = 0; i < elementsToAdd; i++) {
+                    tupleTypeArgs.push({ isUnbounded: false, type: typeArg.type });
+                }
+            }
+        });
+
+        return specializeTupleClass(concreteSubtype, tupleTypeArgs);
     });
 }
 
@@ -2409,4 +2455,18 @@ function narrowTypeForCallable(
             }
         }
     });
+}
+
+export class Animal {}
+export class Dog extends Animal {}
+
+export class Plant {}
+export class Tree extends Plant {}
+
+export function func1(val: Animal) {
+    if (val instanceof Tree) {
+        console.log(val);
+    } else {
+        console.log(val);
+    }
 }

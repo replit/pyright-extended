@@ -76,6 +76,7 @@ import {
 import { ResultProgressReporter, attachWorkDone } from 'vscode-languageserver/lib/common/progress';
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import { formatBufferWithYapf } from '../../pyright-yapf';
 import { AnalysisResults } from './analyzer/analysis';
 import { BackgroundAnalysisProgram, InvalidatedReason } from './analyzer/backgroundAnalysisProgram';
 import { CacheManager } from './analyzer/cacheManager';
@@ -109,6 +110,7 @@ import { Host } from './common/host';
 import { fromLSPAny } from './common/lspUtils';
 import { convertPathToUri, deduplicateFolders, getDirectoryPath, getFileName, isFile } from './common/pathUtils';
 import { ProgressReportTracker, ProgressReporter } from './common/progressReporter';
+import { ServiceProvider } from './common/serviceProvider';
 import { DocumentRange, Position, Range } from './common/textRange';
 import { UriParser } from './common/uriParser';
 import { AnalyzerServiceExecutor } from './languageService/analyzerServiceExecutor';
@@ -120,14 +122,12 @@ import { DocumentSymbolProvider } from './languageService/documentSymbolProvider
 import { HoverProvider } from './languageService/hoverProvider';
 import { canNavigateToFile } from './languageService/navigationUtils';
 import { ReferencesProvider } from './languageService/referencesProvider';
+import { RenameProvider } from './languageService/renameProvider';
 import { SignatureHelpProvider } from './languageService/signatureHelpProvider';
+import { WorkspaceSymbolProvider } from './languageService/workspaceSymbolProvider';
 import { Localizer, setLocaleOverride } from './localization/localize';
 import { SupportUriToPathMapping } from './pyrightFileSystem';
 import { InitStatus, WellKnownWorkspaceKinds, Workspace, WorkspaceFactory } from './workspaceFactory';
-import { RenameProvider } from './languageService/renameProvider';
-import { WorkspaceSymbolProvider } from './languageService/workspaceSymbolProvider';
-import { formatBufferWithYapf } from '../../pyright-yapf';
-import { ServiceProvider } from './common/serviceProvider';
 
 export interface ServerSettings {
     venvPath?: string | undefined;

@@ -322,6 +322,8 @@ export namespace Localizer {
             new ParameterizedString<{ name: string }>(getRawString('Diagnostic.constantRedefinition'));
         export const constructorNoArgs = () =>
             new ParameterizedString<{ type: string }>(getRawString('Diagnostic.constructorNoArgs'));
+        export const coroutineInConditionalExpression = () =>
+            getRawString('Diagnostic.coroutineInConditionalExpression');
         export const constructorParametersMismatch = () =>
             new ParameterizedString<{ classType: string }>(getRawString('Diagnostic.constructorParametersMismatch'));
         export const containmentAlwaysFalse = () =>
@@ -373,6 +375,8 @@ export namespace Localizer {
             new ParameterizedString<{ name: string }>(getRawString('Diagnostic.deprecatedConstructor'));
         export const deprecatedFunction = () =>
             new ParameterizedString<{ name: string }>(getRawString('Diagnostic.deprecatedFunction'));
+        export const deprecatedMethod = () =>
+            new ParameterizedString<{ name: string; className: string }>(getRawString('Diagnostic.deprecatedMethod'));
         export const deprecatedType = () =>
             new ParameterizedString<{ version: string; replacement: string }>(
                 getRawString('Diagnostic.deprecatedType')
@@ -680,8 +684,6 @@ export namespace Localizer {
             new ParameterizedString<{ name: string; newIndex: number; prevIndex: number }>(
                 getRawString('Diagnostic.overloadReturnTypeMismatch')
             );
-        export const overloadWithImplementation = () =>
-            new ParameterizedString<{ name: string }>(getRawString('Diagnostic.overloadWithImplementation'));
         export const overloadWithoutImplementation = () =>
             new ParameterizedString<{ name: string }>(getRawString('Diagnostic.overloadWithoutImplementation'));
         export const overriddenMethodNotFound = () =>
@@ -1244,9 +1246,13 @@ export namespace Localizer {
         export const overloadSignature = () => getRawString('DiagnosticAddendum.overloadSignature');
         export const overloadNotAssignable = () =>
             new ParameterizedString<{ name: string }>(getRawString('DiagnosticAddendum.overloadNotAssignable'));
-        export const overloadWithImplementation = () => getRawString('DiagnosticAddendum.overloadWithImplementation');
         export const overriddenMethod = () => getRawString('DiagnosticAddendum.overriddenMethod');
         export const overriddenSymbol = () => getRawString('DiagnosticAddendum.overriddenSymbol');
+        export const overrideIsInvariant = () => getRawString('DiagnosticAddendum.overrideIsInvariant');
+        export const overrideInvariantMismatch = () =>
+            new ParameterizedString<{ overrideType: string; baseType: string }>(
+                getRawString('DiagnosticAddendum.overrideInvariantMismatch')
+            );
         export const overrideNoOverloadMatches = () => getRawString('DiagnosticAddendum.overrideNoOverloadMatches');
         export const overrideNotClassMethod = () => getRawString('DiagnosticAddendum.overrideNotClassMethod');
         export const overrideNotInstanceMethod = () => getRawString('DiagnosticAddendum.overrideNotInstanceMethod');
@@ -1352,6 +1358,8 @@ export namespace Localizer {
             new ParameterizedString<{ type: string; name: string }>(
                 getRawString('DiagnosticAddendum.typeConstrainedTypeVar')
             );
+        export const typedDictBaseClass = () =>
+            new ParameterizedString<{ type: string }>(getRawString('DiagnosticAddendum.typedDictBaseClass'));
         export const typedDictFieldMissing = () =>
             new ParameterizedString<{ name: string; type: string }>(
                 getRawString('DiagnosticAddendum.typedDictFieldMissing')
@@ -1459,5 +1467,10 @@ export namespace Localizer {
             new ParameterizedString<{ newFile: string; oldFile: string }>(
                 getRawString('CodeAction.renameShadowedFile')
             );
+    }
+
+    export namespace Completion {
+        export const autoImportDetail = () => getRawString('Completion.autoImportDetail');
+        export const indexValueDetail = () => getRawString('Completion.indexValueDetail');
     }
 }

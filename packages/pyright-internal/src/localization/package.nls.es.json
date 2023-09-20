@@ -10,6 +10,10 @@
         "organizeImports": "Organizar Importaciones",
         "renameShadowedFile": "Cambie el nombre de \"{oldFile}\" a \"{newFile}\""
     },
+    "Completion": {
+        "autoImportDetail": "Auto-import",
+        "indexValueDetail": "Index value"
+    },
     "Diagnostic": {
         "abstractMethodInvocation": "El método \"{method}\" no puede ser llamado porque es abstracto",
         "annotatedParamCountMismatch": "El recuento de anotaciones del parámetro no coincide: se esperaba {expected}, pero se recibió {received}",
@@ -323,7 +327,6 @@
         "overloadAbstractMismatch": "Todos los métodos sobrecargados deben ser abstractos o no",
         "overloadImplementationMismatch": "La implementación de la sobrecarga no es consistente con la firma de la sobrecarga {index}",
         "overloadReturnTypeMismatch": "La sobrecarga {prevIndex} para \" {name}\" se superpone con la sobrecarga {newIndex} y devuelve un tipo incompatible",
-        "overloadWithImplementation": "\"{name}\" está marcado como sobrecarga, pero incluye una implementación",
         "overloadWithoutImplementation": "\"{name}\" está marcado como sobrecarga, pero no se proporciona ninguna implementación.",
         "overriddenMethodNotFound": "El método \"{name}\" está marcado como invalidación, pero no existe ningún método base con el mismo nombre",
         "overrideDecoratorMissing": "El método \"{name}\" no está marcado como invalidación, pero está reemplazando un método de la clase \"{className}\"",
@@ -417,7 +420,7 @@
         "superCallArgCount": "No se esperaban más de dos argumentos para la llamada \"super\"",
         "superCallFirstArg": "Se esperaba el tipo de clase como primer argumento de la llamada a \"super\" pero se recibió \"{type}\"",
         "superCallSecondArg": "El segundo argumento de la llamada a \"super\" debe ser un objeto o clase que derive de \"{type}\"",
-        "superCallZeroArgForm": "La forma sin argumentos de la llamada \"super\" sólo es válida dentro de una clase",
+        "superCallZeroArgForm": "La forma sin argumentos de la llamada \"super\" sólo es válida dentro de un método",
         "symbolIsPossiblyUnbound": "\"{name}\" está posiblemente desvinculado",
         "symbolIsUnbound": "\"{name}\" está sin consolidar",
         "symbolIsUndefined": "\"{name}\" no está definido",
@@ -452,6 +455,7 @@
         "typeAssignmentMismatch": "La expresión del tipo \"{sourceType}\" no puede asignarse al tipo declarado \"{destType}\"",
         "typeAssignmentMismatchWildcard": "El símbolo de importación \"{name}\" tiene el tipo \"{sourceType}\", que no se puede asignar al tipo declarado \"{destType}\"",
         "typeCallNotAllowed": "la llamada a type() no debe utilizarse en la anotación de tipo",
+        "typeCheckOnly": "\"{name}\" está marcado como @type_check_only y solo se puede usar en anotaciones de tipo",
         "typeCommentDeprecated": "El uso de comentarios de tipo está obsoleto; utilice en su lugar anotaciones de tipo.",
         "typeExpectedClass": "Se esperaba una expresión de tipo pero se ha recibido \"{type}\"",
         "typeGuardArgCount": "Se esperaba un único argumento de tipo después de \"TypeGuard\".",
@@ -641,7 +645,6 @@
         "orPatternMissingName": "Nombres que faltan: {name}",
         "overloadNotAssignable": "Una o más sobrecargas de \"{name}\" no es asignable",
         "overloadSignature": "Aquí se define la firma de la sobrecarga",
-        "overloadWithImplementation": "El cuerpo de una sobrecarga de función debe ser \"...\".",
         "overriddenMethod": "Método reemplazado",
         "overriddenSymbol": "Símbolo anulado",
         "overrideNoOverloadMatches": "Ninguna firma de sobrecarga en anulación es compatible con el método base",
@@ -685,7 +688,8 @@
         "seeVariableDeclaration": "declaración de variable out",
         "tupleAssignmentMismatch": "El tipo \"{type}\" no es compatible con la tupla de destino",
         "tupleEntryTypeMismatch": "La entrada {entry} de la tupla es de tipo incorrecto",
-        "tupleSizeMismatch": "Tamaño de elemento no coincidente; esperado {expected} pero recibido {received}",
+        "tupleSizeIndeterminate": "El tamaño de la tupla no coincide; se esperaba {expected} pero se recibió uno indeterminado",
+        "tupleSizeMismatch": "El tamaño de la tupla no coincide; se esperaba {expected} pero se recibió {received}",
         "typeAssignmentMismatch": "El tipo \"{sourceType}\" no puede asignarse al tipo \"{destType}\"",
         "typeBound": "El tipo \"{sourceType}\" es incompatible con el tipo \"{destType}\" vinculado para la variable de tipo \"{name}\"",
         "typeConstrainedTypeVar": "El tipo \"{type}\" no es compatible con la variable de tipo restringido \"{name}\"",

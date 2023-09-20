@@ -125,6 +125,7 @@ export function getNameFromDeclaration(declaration: Declaration) {
         case DeclarationType.Class:
         case DeclarationType.Function:
         case DeclarationType.TypeParameter:
+        case DeclarationType.TypeAlias:
             return declaration.node.name.value;
 
         case DeclarationType.Parameter:
@@ -156,6 +157,7 @@ export function getNameNodeForDeclaration(declaration: Declaration): NameNode | 
         case DeclarationType.Function:
         case DeclarationType.TypeParameter:
         case DeclarationType.Parameter:
+        case DeclarationType.TypeAlias:
             return declaration.node.name;
 
         case DeclarationType.Variable:
@@ -293,7 +295,19 @@ export function resolveAliasDeclaration(
                     }
                 }
 
-                return resolveAliasDeclaration(importLookup, curDeclaration.submoduleFallback, options);
+                let submoduleFallback = curDeclaration.submoduleFallback;
+                if (curDeclaration.symbolName) {
+                    submoduleFallback = { ...curDeclaration.submoduleFallback };
+                    let baseModuleName = submoduleFallback.moduleName;
+
+                    if (baseModuleName) {
+                        baseModuleName = `${baseModuleName}.`;
+                    }
+
+                    submoduleFallback.moduleName = `${baseModuleName}${curDeclaration.symbolName}`;
+                }
+
+                return resolveAliasDeclaration(importLookup, submoduleFallback, options);
             }
 
             // If the symbol comes from a native library, we won't
@@ -338,6 +352,8 @@ export function resolveAliasDeclaration(
             return undefined;
         }
 
+        const prevDeclaration = curDeclaration;
+
         // Prefer the last unvisited declaration in the list. This ensures that
         // we use all of the overloads if it's an overloaded function.
         const unvisitedDecls = declarations.filter((decl) => !alreadyVisited.includes(decl));
@@ -350,7 +366,7 @@ export function resolveAliasDeclaration(
         if (lookupResult?.isInPyTypedPackage) {
             if (!sawPyTypedTransition) {
                 if (symbol.isPrivatePyTypedImport()) {
-                    privatePyTypedImporter = curDeclaration?.moduleName;
+                    privatePyTypedImporter = prevDeclaration?.moduleName;
                 }
 
                 // Note that we've seen a transition from a non-py.typed to a py.typed

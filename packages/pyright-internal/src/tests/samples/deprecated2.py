@@ -1,5 +1,7 @@
 # This sample tests the @typing.deprecated decorator introduced in PEP 702.
 
+from typing import Any, Callable, TypeVar
+from contextlib import contextmanager
 from typing_extensions import deprecated, overload
 
 
@@ -89,3 +91,81 @@ ClassD(3)
 
 # This should generate an error if reportDeprecated is enabled.
 ClassD("")
+
+
+@deprecated("Deprecated async function")
+async def func3():
+    ...
+
+
+async def func4():
+    # This should generate an error if reportDeprecated is enabled.
+    await func3()
+
+
+@overload
+def func5(val: int):
+    ...
+
+
+@overload
+def func5(val: str):
+    ...
+
+
+@deprecated("All overloads are deprecated")
+def func5(val: object):
+    ...
+
+
+# This should generate an error if reportDeprecated is enabled.
+func5(1)
+
+# This should generate an error if reportDeprecated is enabled.
+func5("")
+
+
+T = TypeVar("T", bound=Callable[..., Any])
+
+
+@deprecated("Use different decorator")
+@overload
+def deco1(value: T) -> T:
+    ...
+
+
+@overload
+def deco1(value: str):
+    ...
+
+
+def deco1(value: object) -> object:
+    ...
+
+
+# This should generate an error if reportDeprecated is enabled.
+@deco1
+def func6():
+    ...
+
+
+@contextmanager
+@deprecated("Func is deprecated")
+def func7():
+    yield
+
+
+# This should generate an error if reportDeprecated is enabled.
+with func7():
+    ...
+
+
+@deprecated("Func is deprecated")
+@contextmanager
+def func8():
+    yield
+
+
+# This should generate an error if reportDeprecated is enabled.
+with func8():
+    ...
