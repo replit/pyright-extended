@@ -44,7 +44,6 @@ import { EvaluatorFlags, TypeEvaluator, TypeResult } from './typeEvaluatorTypes'
 import { getTypeNarrowingCallback } from './typeGuards';
 import {
     ClassType,
-    cleanIncompleteUnknown,
     combineTypes,
     FunctionType,
     isClass,
@@ -65,6 +64,7 @@ import {
 } from './types';
 import {
     ClassMemberLookupFlags,
+    cleanIncompleteUnknown,
     derivesFromStdlibClass,
     doForEachSubtype,
     isIncompleteUnknown,
@@ -83,7 +83,6 @@ export interface FlowNodeTypeResult {
 
 export interface FlowNodeTypeOptions {
     isTypeAtStartIncomplete?: boolean;
-    skipNoReturnCallAnalysis?: boolean;
     skipConditionalNarrowing?: boolean;
 }
 
@@ -431,7 +430,7 @@ export function getCodeFlowEngine(
                         // If this function returns a "NoReturn" type, that means
                         // it always raises an exception or otherwise doesn't return,
                         // so we can assume that the code before this is unreachable.
-                        if (!options?.skipNoReturnCallAnalysis && isCallNoReturn(evaluator, callFlowNode)) {
+                        if (isCallNoReturn(evaluator, callFlowNode)) {
                             return setCacheEntry(curFlowNode, /* type */ undefined, /* isIncomplete */ false);
                         }
 
@@ -454,6 +453,14 @@ export function getCodeFlowEngine(
                                 // Is this a special "unbind" assignment? If so,
                                 // we can handle it immediately without any further evaluation.
                                 if (curFlowNode.flags & FlowFlags.Unbind) {
+                                    // Don't treat unbound assignments to indexed expressions (i.e. "del x[0]")
+                                    // as true deletions. The most common use case for "del x[0]" is in a list,
+                                    // and the list class treats this as an element deletion, not an assignment.
+                                    if (reference.nodeType === ParseNodeType.Index) {
+                                        // No need to explore further.
+                                        return setCacheEntry(curFlowNode, undefined, /* isIncomplete */ false);
+                                    }
+
                                     return setCacheEntry(curFlowNode, UnboundType.create(), /* isIncomplete */ false);
                                 }
 
@@ -986,12 +993,17 @@ export function getCodeFlowEngine(
                     }
 
                     let effectiveType = cacheEntry.type;
+                    let cleanedIncompleteUnknowns = false;
                     if (sawIncomplete) {
                         // If there is an incomplete "Unknown" type within a union type, remove
                         // it. Otherwise we might end up resolving the cycle with a type
                         // that includes an undesirable unknown.
                         if (effectiveType) {
-                            effectiveType = cleanIncompleteUnknown(effectiveType);
+                            const cleanedType = cleanIncompleteUnknown(effectiveType);
+                            if (cleanedType !== effectiveType) {
+                                effectiveType = cleanedType;
+                                cleanedIncompleteUnknowns = true;
+                            }
                         }
                     }
 
@@ -1002,10 +1014,12 @@ export function getCodeFlowEngine(
                         // up the stack will be able to produce a valid type.
                         let reportIncomplete = sawIncomplete;
                         if (
+                            sawIncomplete &&
                             !sawPending &&
                             effectiveType &&
                             !isIncompleteUnknown(effectiveType) &&
-                            !firstAntecedentTypeIsIncomplete
+                            !firstAntecedentTypeIsIncomplete &&
+                            !cleanedIncompleteUnknowns
                         ) {
                             // Bump the generation count because we need to recalculate
                             // other incomplete types based on this now-complete type.

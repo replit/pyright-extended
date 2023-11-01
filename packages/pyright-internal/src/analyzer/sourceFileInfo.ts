@@ -26,6 +26,7 @@ export class SourceFileInfo {
         args: OptionalArguments = {}
     ) {
         this.isCreatedInEditMode = this._editModeTracker.isEditMode;
+
         this._writableData = this._createWriteableData(args);
 
         this._cachePreEditState();
@@ -37,10 +38,6 @@ export class SourceFileInfo {
 
     get builtinsImport() {
         return this._writableData.builtinsImport;
-    }
-
-    get ipythonDisplayImport() {
-        return this._writableData.ipythonDisplayImport;
     }
 
     // Information about the chained source file
@@ -92,17 +89,12 @@ export class SourceFileInfo {
         this._writableData.builtinsImport = value;
     }
 
-    set ipythonDisplayImport(value: SourceFileInfo | undefined) {
-        this._cachePreEditState();
-        this._writableData.ipythonDisplayImport = value;
-    }
-
     set chainedSourceFile(value: SourceFileInfo | undefined) {
         this._cachePreEditState();
         this._writableData.chainedSourceFile = value;
     }
 
-    set effectiveFutureImports(value: Set<string> | undefined) {
+    set effectiveFutureImports(value: ReadonlySet<string> | undefined) {
         this._cachePreEditState();
         this._writableData.effectiveFutureImports = value;
     }
@@ -126,6 +118,9 @@ export class SourceFileInfo {
         if (this._preEditData) {
             this._writableData = this._preEditData;
             this._preEditData = undefined;
+
+            // Some states have changed. Force some of info to be re-calcuated.
+            this.sourceFile.dropParseAndBindInfo();
         }
 
         return this.sourceFile.restore();
@@ -150,7 +145,6 @@ export class SourceFileInfo {
             chainedSourceFile: args.chainedSourceFile,
             diagnosticsVersion: args.diagnosticsVersion,
             effectiveFutureImports: args.effectiveFutureImports,
-            ipythonDisplayImport: args.ipythonDisplayImport,
             imports: [],
             importedBy: [],
             shadows: [],
@@ -166,7 +160,6 @@ export class SourceFileInfo {
             chainedSourceFile: data.chainedSourceFile,
             diagnosticsVersion: data.diagnosticsVersion,
             effectiveFutureImports: data.effectiveFutureImports,
-            ipythonDisplayImport: data.ipythonDisplayImport,
             imports: data.imports.slice(),
             importedBy: data.importedBy.slice(),
             shadows: data.shadows.slice(),
@@ -185,9 +178,8 @@ interface OptionalArguments {
     isOpenByClient?: boolean;
     diagnosticsVersion?: number | undefined;
     builtinsImport?: SourceFileInfo | undefined;
-    ipythonDisplayImport?: SourceFileInfo | undefined;
     chainedSourceFile?: SourceFileInfo | undefined;
-    effectiveFutureImports?: Set<string>;
+    effectiveFutureImports?: ReadonlySet<string>;
 }
 
 interface WriteableData {
@@ -196,7 +188,6 @@ interface WriteableData {
     diagnosticsVersion?: number | undefined;
 
     builtinsImport?: SourceFileInfo | undefined;
-    ipythonDisplayImport?: SourceFileInfo | undefined;
 
     // Information about the chained source file
     // Chained source file is not supposed to exist on file system but
@@ -205,7 +196,7 @@ interface WriteableData {
     // current file's scope.
     chainedSourceFile?: SourceFileInfo | undefined;
 
-    effectiveFutureImports?: Set<string>;
+    effectiveFutureImports?: ReadonlySet<string>;
 
     // Information about why the file is included in the program
     // and its relation to other source files in the program.

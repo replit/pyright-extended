@@ -19,15 +19,18 @@ import { isVisibleExternally } from '../analyzer/symbolUtils';
 import { TypeEvaluator } from '../analyzer/typeEvaluatorTypes';
 import { maxTypeRecursionCount } from '../analyzer/types';
 import { throwIfCancellationRequested } from '../common/cancellationUtils';
+import { isDefined } from '../common/core';
 import { appendArray } from '../common/collectionUtils';
 import { assertNever } from '../common/debug';
-import { ProgramView } from '../common/extensibility';
+import { ProgramView, ReferenceUseCase, SymbolUsageProvider } from '../common/extensibility';
 import { convertOffsetToPosition, convertPositionToOffset } from '../common/positionUtils';
 import { DocumentRange, Position, TextRange, doesRangeContain } from '../common/textRange';
 import { NameNode, ParseNode, ParseNodeType } from '../parser/parseNodes';
 import { ParseResults } from '../parser/parser';
-import { DocumentSymbolCollector, DocumentSymbolCollectorUseCase } from './documentSymbolCollector';
+import { CollectionResult, DocumentSymbolCollector } from './documentSymbolCollector';
+import { ReadOnlyFileSystem } from '../common/fileSystem';
 import { convertDocumentRangesToLocation } from './navigationUtils';
+import { ServiceKeys } from '../common/serviceProviderExtensions';
 
 export type ReferenceCallback = (locations: DocumentRange[]) => void;
 
@@ -41,7 +44,8 @@ export class ReferencesResult {
         readonly nodeAtOffset: ParseNode,
         readonly symbolNames: string[],
         readonly declarations: Declaration[],
-        readonly useCase: DocumentSymbolCollectorUseCase,
+        readonly useCase: ReferenceUseCase,
+        readonly providers: readonly SymbolUsageProvider[],
         private readonly _reporter?: ReferenceCallback
     ) {
         // Filter out any import decls. but leave one with alias.
@@ -102,7 +106,12 @@ export class FindReferencesTreeWalker {
         private _filePath: string,
         private _referencesResult: ReferencesResult,
         private _includeDeclaration: boolean,
-        private _cancellationToken: CancellationToken
+        private _cancellationToken: CancellationToken,
+        private readonly _createDocumentRange: (
+            filePath: string,
+            result: CollectionResult,
+            parseResults: ParseResults
+        ) => DocumentRange = FindReferencesTreeWalker.createDocumentRange
     ) {
         this._parseResults = this._program.getParseResults(this._filePath);
     }
@@ -117,35 +126,48 @@ export class FindReferencesTreeWalker {
             this._program,
             this._referencesResult.symbolNames,
             this._referencesResult.declarations,
-            this._cancellationToken,
             rootNode!,
-            /* treatModuleInImportAndFromImportSame */ true,
-            /* skipUnreachableCode */ false,
-            this._referencesResult.useCase
+            this._cancellationToken,
+            {
+                treatModuleInImportAndFromImportSame: true,
+                skipUnreachableCode: false,
+                useCase: this._referencesResult.useCase,
+                providers: this._referencesResult.providers,
+            }
         );
 
         for (const result of collector.collect()) {
             // Is it the same symbol?
             if (this._includeDeclaration || result.node !== this._referencesResult.nodeAtOffset) {
-                results.push({
-                    path: this._filePath,
-                    range: {
-                        start: convertOffsetToPosition(result.range.start, this._parseResults.tokenizerOutput.lines),
-                        end: convertOffsetToPosition(
-                            TextRange.getEnd(result.range),
-                            this._parseResults.tokenizerOutput.lines
-                        ),
-                    },
-                });
+                results.push(this._createDocumentRange(this._filePath, result, this._parseResults));
             }
         }
 
         return results;
     }
+
+    static createDocumentRange(filePath: string, result: CollectionResult, parseResults: ParseResults): DocumentRange {
+        return {
+            path: filePath,
+            range: {
+                start: convertOffsetToPosition(result.range.start, parseResults.tokenizerOutput.lines),
+                end: convertOffsetToPosition(TextRange.getEnd(result.range), parseResults.tokenizerOutput.lines),
+            },
+        };
+    }
 }
 
 export class ReferencesProvider {
-    constructor(private _program: ProgramView, private _token: CancellationToken) {
+    constructor(
+        private _program: ProgramView,
+        private _token: CancellationToken,
+        private readonly _createDocumentRange?: (
+            filePath: string,
+            result: CollectionResult,
+            parseResults: ParseResults
+        ) => DocumentRange,
+        private readonly _convertToLocation?: (fs: ReadOnlyFileSystem, ranges: DocumentRange) => Location | undefined
+    ) {
         // empty
     }
 
@@ -167,8 +189,15 @@ export class ReferencesProvider {
 
         const locations: Location[] = [];
         const reporter: ReferenceCallback = resultReporter
-            ? (range) => resultReporter.report(convertDocumentRangesToLocation(this._program.fileSystem, range))
-            : (range) => appendArray(locations, convertDocumentRangesToLocation(this._program.fileSystem, range));
+            ? (range) =>
+                  resultReporter.report(
+                      convertDocumentRangesToLocation(this._program.fileSystem, range, this._convertToLocation)
+                  )
+            : (range) =>
+                  appendArray(
+                      locations,
+                      convertDocumentRangesToLocation(this._program.fileSystem, range, this._convertToLocation)
+                  );
 
         const invokedFromUserFile = isUserCode(sourceFileInfo);
         const referencesResult = ReferencesProvider.getDeclarationForPosition(
@@ -176,7 +205,7 @@ export class ReferencesProvider {
             filePath,
             position,
             reporter,
-            DocumentSymbolCollectorUseCase.Reference,
+            ReferenceUseCase.References,
             this._token
         );
         if (!referencesResult) {
@@ -233,7 +262,8 @@ export class ReferencesProvider {
                     referencesResult.nodeAtOffset,
                     referencesResult.symbolNames,
                     referencesResult.declarations,
-                    referencesResult.useCase
+                    referencesResult.useCase,
+                    referencesResult.providers
                 );
 
                 this.addReferencesToResult(declFileInfo.sourceFile.getFilePath(), includeDeclaration, tempResult);
@@ -260,7 +290,8 @@ export class ReferencesProvider {
             filePath,
             referencesResult,
             includeDeclaration,
-            this._token
+            this._token,
+            this._createDocumentRange
         );
 
         referencesResult.addLocations(...refTreeWalker.findReferences());
@@ -271,7 +302,7 @@ export class ReferencesProvider {
         filePath: string,
         node: NameNode,
         reporter: ReferenceCallback | undefined,
-        useCase: DocumentSymbolCollectorUseCase,
+        useCase: ReferenceUseCase,
         token: CancellationToken
     ) {
         throwIfCancellationRequested(token);
@@ -280,7 +311,6 @@ export class ReferencesProvider {
             program,
             node,
             /* resolveLocalNames */ false,
-            useCase,
             token
         );
 
@@ -289,8 +319,18 @@ export class ReferencesProvider {
         }
 
         const requiresGlobalSearch = isVisibleOutside(program.evaluator!, filePath, node, declarations);
-        const symbolNames = new Set(declarations.map((d) => getNameFromDeclaration(d)!).filter((n) => !!n));
+        const symbolNames = new Set<string>(declarations.map((d) => getNameFromDeclaration(d)!).filter((n) => !!n));
         symbolNames.add(node.value);
+
+        const providers = (program.serviceProvider.tryGet(ServiceKeys.symbolUsageProviderFactory) ?? [])
+            .map((f) => f.tryCreateProvider(useCase, declarations, token))
+            .filter(isDefined);
+
+        // Check whether we need to add new symbol names and declarations.
+        providers.forEach((p) => {
+            p.appendSymbolNamesTo(symbolNames);
+            p.appendDeclarationsTo(declarations);
+        });
 
         return new ReferencesResult(
             requiresGlobalSearch,
@@ -298,6 +338,7 @@ export class ReferencesProvider {
             Array.from(symbolNames.values()),
             declarations,
             useCase,
+            providers,
             reporter
         );
     }
@@ -307,7 +348,7 @@ export class ReferencesProvider {
         filePath: string,
         position: Position,
         reporter: ReferenceCallback | undefined,
-        useCase: DocumentSymbolCollectorUseCase,
+        useCase: ReferenceUseCase,
         token: CancellationToken
     ): ReferencesResult | undefined {
         throwIfCancellationRequested(token);

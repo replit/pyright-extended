@@ -394,6 +394,18 @@ test('Loop38', () => {
     TestUtils.validateResults(analysisResults, 0);
 });
 
+test('Loop39', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['loop39.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('Loop40', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['loop40.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
 test('ForLoop1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['forLoop1.py']);
 
@@ -741,7 +753,7 @@ test('Classes1', () => {
 test('Classes3', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['classes3.py']);
 
-    TestUtils.validateResults(analysisResults, 4);
+    TestUtils.validateResults(analysisResults, 1);
 });
 
 test('Classes4', () => {
@@ -828,7 +840,7 @@ test('MethodOverride2', () => {
     // Turn on errors.
     configOptions.diagnosticRuleSet.reportIncompatibleMethodOverride = 'error';
     analysisResults = TestUtils.typeAnalyzeSampleFiles(['methodOverride2.py'], configOptions);
-    TestUtils.validateResults(analysisResults, 5);
+    TestUtils.validateResults(analysisResults, 6);
 });
 
 test('MethodOverride3', () => {
@@ -977,7 +989,7 @@ test('TypePromotions1', () => {
 test('Index1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['index1.py']);
 
-    TestUtils.validateResults(analysisResults, 7);
+    TestUtils.validateResults(analysisResults, 10);
 });
 
 test('ProtocolModule2', () => {
@@ -1246,6 +1258,14 @@ test('MatchClass4', () => {
     configOptions.defaultPythonVersion = PythonVersion.V3_10;
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['matchClass4.py'], configOptions);
     TestUtils.validateResults(analysisResults, 0);
+});
+
+test('MatchClass5', () => {
+    const configOptions = new ConfigOptions('.');
+
+    configOptions.defaultPythonVersion = PythonVersion.V3_10;
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['matchClass5.py'], configOptions);
+    TestUtils.validateResults(analysisResults, 5);
 });
 
 test('MatchValue1', () => {
@@ -1625,7 +1645,7 @@ test('Subscript1', () => {
 
 test('Subscript2', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['subscript2.py']);
-    TestUtils.validateResults(analysisResults, 5);
+    TestUtils.validateResults(analysisResults, 8);
 });
 
 test('Subscript3', () => {
@@ -1634,7 +1654,7 @@ test('Subscript3', () => {
     // Analyze with Python 3.9 settings.
     configOptions.defaultPythonVersion = PythonVersion.V3_9;
     const analysisResults39 = TestUtils.typeAnalyzeSampleFiles(['subscript3.py'], configOptions);
-    TestUtils.validateResults(analysisResults39, 32);
+    TestUtils.validateResults(analysisResults39, 37);
 
     // Analyze with Python 3.10 settings.
     // These are disabled because PEP 637 was rejected.

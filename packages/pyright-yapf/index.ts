@@ -1,6 +1,7 @@
 import { spawnSync, SpawnSyncReturns } from 'node:child_process';
 import { TextEdit, uinteger } from 'vscode-languageserver';
 
+// TODO: there's probably a way to make this async so format requests dont block other requests
 function _runYapf(buf: string, indentWidth: number): SpawnSyncReturns<Buffer> {
     const args = ['--style', `{based_on_style: pep8, indent_width: ${indentWidth}}`, '--no-local-style'];
     return spawnSync(`yapf`, args, {

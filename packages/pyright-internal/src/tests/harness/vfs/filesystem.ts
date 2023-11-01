@@ -10,7 +10,7 @@
 import { Dirent, ReadStream, WriteStream } from 'fs';
 import { URI } from 'vscode-uri';
 
-import { FileSystem, MkDirOptions, TmpfileOptions } from '../../../common/fileSystem';
+import { FileSystem, MkDirOptions, TempFile, TmpfileOptions } from '../../../common/fileSystem';
 import { FileWatcher, FileWatcherEventHandler, FileWatcherEventType } from '../../../common/fileWatcher';
 import * as pathUtil from '../../../common/pathUtils';
 import { bufferFrom, createIOError } from '../utils';
@@ -49,7 +49,7 @@ export class TestFileSystemWatcher implements FileWatcher {
 /**
  * Represents a virtual POSIX-like file system.
  */
-export class TestFileSystem implements FileSystem {
+export class TestFileSystem implements FileSystem, TempFile {
     /** Indicates whether the file system is case-sensitive (`false`) or case-insensitive (`true`). */
     readonly ignoreCase: boolean;
 
@@ -90,7 +90,7 @@ export class TestFileSystem implements FileSystem {
         }
 
         let cwd = options.cwd;
-        if ((!cwd || !pathUtil.isDiskPathRoot(cwd)) && this._lazy.links) {
+        if ((!cwd || (!pathUtil.isDiskPathRoot(cwd) && !pathUtil.isUri(cwd))) && this._lazy.links) {
             const iterator = getIterator(this._lazy.links.keys());
             try {
                 for (let i = nextResult(iterator); i; i = nextResult(iterator)) {
@@ -383,6 +383,11 @@ export class TestFileSystem implements FileSystem {
     }
 
     getUri(path: string): string {
+        // If this is not a file path, just return the original path.
+        if (pathUtil.isUri(path)) {
+            return path;
+        }
+
         return URI.file(path).toString();
     }
 

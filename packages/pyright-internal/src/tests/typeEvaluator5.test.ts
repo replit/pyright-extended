@@ -226,6 +226,14 @@ test('TypeVarDefaultClass3', () => {
     TestUtils.validateResults(analysisResults, 9);
 });
 
+test('TypeVarDefaultClass4', () => {
+    const configOptions = new ConfigOptions('.');
+    configOptions.defaultPythonVersion = PythonVersion.V3_13;
+
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typeVarDefaultClass4.py'], configOptions);
+    TestUtils.validateResults(analysisResults, 0);
+});
+
 test('TypeVarDefaultTypeAlias1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typeVarDefaultTypeAlias1.py']);
     TestUtils.validateResults(analysisResults, 0);
@@ -293,8 +301,11 @@ test('TypePrinter3', () => {
 });
 
 test('TypeAliasType1', () => {
-    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typeAliasType1.py']);
-    TestUtils.validateResults(analysisResults, 15);
+    const configOptions = new ConfigOptions('.');
+    configOptions.defaultPythonVersion = PythonVersion.V3_12;
+
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typeAliasType1.py'], configOptions);
+    TestUtils.validateResults(analysisResults, 14);
 });
 
 test('TypeAliasType2', () => {
@@ -307,7 +318,7 @@ test('TypedDictReadOnly1', () => {
     configOptions.diagnosticRuleSet.enableExperimentalFeatures = true;
 
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typedDictReadOnly1.py'], configOptions);
-    TestUtils.validateResults(analysisResults, 5);
+    TestUtils.validateResults(analysisResults, 2);
 });
 
 test('TypedDictReadOnly2', () => {
@@ -315,7 +326,7 @@ test('TypedDictReadOnly2', () => {
     configOptions.diagnosticRuleSet.enableExperimentalFeatures = true;
 
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typedDictReadOnly2.py'], configOptions);
-    TestUtils.validateResults(analysisResults, 8);
+    TestUtils.validateResults(analysisResults, 15);
 });
 
 test('DataclassTransform1', () => {

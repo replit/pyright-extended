@@ -22,11 +22,12 @@ import { TypeCategory, isOverloadedFunction } from '../analyzer/types';
 import { throwIfCancellationRequested } from '../common/cancellationUtils';
 import { appendArray } from '../common/collectionUtils';
 import { isDefined } from '../common/core';
-import { DeclarationUseCase, Extensions, ProgramView } from '../common/extensibility';
+import { ProgramView, ServiceProvider } from '../common/extensibility';
 import { convertPositionToOffset } from '../common/positionUtils';
 import { DocumentRange, Position, rangesAreEqual } from '../common/textRange';
 import { ParseNode, ParseNodeType } from '../parser/parseNodes';
 import { ParseResults } from '../parser/parser';
+import { ServiceKeys } from '../common/serviceProviderExtensions';
 
 export enum DefinitionFilter {
     All = 'all',
@@ -134,6 +135,7 @@ class DefinitionProviderBase {
     protected constructor(
         protected readonly sourceMapper: SourceMapper,
         protected readonly evaluator: TypeEvaluator,
+        private readonly _serviceProvider: ServiceProvider | undefined,
         protected readonly node: ParseNode | undefined,
         protected readonly offset: number,
         private readonly _filter: DefinitionFilter,
@@ -145,19 +147,13 @@ class DefinitionProviderBase {
 
         const definitions: DocumentRange[] = [];
 
-        // Let extensions have a try first.
-        Extensions.getProgramExtensions(node).forEach((e) => {
-            if (e.declarationProviderExtension) {
-                const declarations = e.declarationProviderExtension.tryGetDeclarations(
-                    this.evaluator,
-                    node,
-                    offset,
-                    DeclarationUseCase.Definition,
-                    this.token
-                );
+        const factories = this._serviceProvider?.tryGet(ServiceKeys.symbolDefinitionProvider);
+        if (factories) {
+            factories.forEach((f) => {
+                const declarations = f.tryGetDeclarations(node, offset, this.token);
                 this.resolveDeclarations(declarations, definitions);
-            }
-        });
+            });
+        }
 
         // There should be only one 'definition', so only if extensions failed should we try again.
         if (definitions.length === 0) {
@@ -194,7 +190,7 @@ export class DefinitionProvider extends DefinitionProviderBase {
         const parseResults = program.getParseResults(filePath);
         const { node, offset } = _tryGetNode(parseResults, position);
 
-        super(sourceMapper, program.evaluator!, node, offset, filter, token);
+        super(sourceMapper, program.evaluator!, program.serviceProvider, node, offset, filter, token);
     }
 
     static getDefinitionsForNode(
@@ -204,7 +200,15 @@ export class DefinitionProvider extends DefinitionProviderBase {
         offset: number,
         token: CancellationToken
     ) {
-        const provider = new DefinitionProviderBase(sourceMapper, evaluator, node, offset, DefinitionFilter.All, token);
+        const provider = new DefinitionProviderBase(
+            sourceMapper,
+            evaluator,
+            undefined,
+            node,
+            offset,
+            DefinitionFilter.All,
+            token
+        );
         return provider.getDefinitionsForNode(node, offset);
     }
 
@@ -225,7 +229,7 @@ export class TypeDefinitionProvider extends DefinitionProviderBase {
         const parseResults = program.getParseResults(filePath);
         const { node, offset } = _tryGetNode(parseResults, position);
 
-        super(sourceMapper, program.evaluator!, node, offset, DefinitionFilter.All, token);
+        super(sourceMapper, program.evaluator!, program.serviceProvider, node, offset, DefinitionFilter.All, token);
         this._filePath = filePath;
     }
 

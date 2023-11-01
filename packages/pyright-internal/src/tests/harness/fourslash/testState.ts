@@ -18,6 +18,7 @@ import {
     DocumentHighlight,
     DocumentHighlightKind,
     ExecuteCommandParams,
+    Location,
     MarkupContent,
     MarkupKind,
     TextEdit,
@@ -37,6 +38,7 @@ import { Comparison, isNumber, isString, toBoolean } from '../../../common/core'
 import * as debug from '../../../common/debug';
 import { DiagnosticCategory } from '../../../common/diagnostic';
 import { FileEditAction } from '../../../common/editAction';
+import { ReadOnlyFileSystem } from '../../../common/fileSystem';
 import {
     combinePaths,
     convertPathToUri,
@@ -48,6 +50,9 @@ import {
     setTestingMode,
 } from '../../../common/pathUtils';
 import { convertOffsetToPosition, convertPositionToOffset } from '../../../common/positionUtils';
+import { ServiceProvider } from '../../../common/serviceProvider';
+import { createServiceProvider } from '../../../common/serviceProviderExtensions';
+import { compareStringsCaseInsensitive, compareStringsCaseSensitive } from '../../../common/stringUtils';
 import { DocumentRange, Position, Range as PositionRange, TextRange, rangesAreEqual } from '../../../common/textRange';
 import { TextRangeCollection } from '../../../common/textRangeCollection';
 import { convertToWorkspaceEdit } from '../../../common/workspaceEditUtils';
@@ -60,6 +65,7 @@ import {
     TypeDefinitionProvider,
 } from '../../../languageService/definitionProvider';
 import { DocumentHighlightProvider } from '../../../languageService/documentHighlightProvider';
+import { CollectionResult } from '../../../languageService/documentSymbolCollector';
 import { HoverProvider } from '../../../languageService/hoverProvider';
 import { convertDocumentRangesToLocation } from '../../../languageService/navigationUtils';
 import { ReferencesProvider } from '../../../languageService/referencesProvider';
@@ -94,9 +100,6 @@ import {
 import { TestFeatures, TestLanguageService } from './testLanguageService';
 import { createVfsInfoFromFourSlashData, getMarkerByName, getMarkerName, getMarkerNames } from './testStateUtils';
 import { verifyWorkspaceEdit } from './workspaceEditTestUtils';
-import { ServiceProvider } from '../../../common/serviceProvider';
-import { createServiceProvider } from '../../../common/serviceProviderExtensions';
-import { compareStringsCaseInsensitive, compareStringsCaseSensitive } from '../../../common/stringUtils';
 
 export interface TextChange {
     span: TextRange;
@@ -166,22 +169,22 @@ export class TestState {
                 mountPaths
             );
 
+        this.fs = new PyrightFileSystem(this.testFS);
         this.console = new NullConsole();
+        this.serviceProvider = createServiceProvider(this.testFS, this.fs, this.console);
+
         this._cancellationToken = new TestCancellationToken();
         this._hostSpecificFeatures = hostSpecificFeatures ?? new TestFeatures();
 
-        this.fs = new PyrightFileSystem(this.testFS);
         this.files = vfsInfo.sourceFileNames;
 
         this.rawConfigJson = vfsInfo.rawConfigJson;
         const configOptions = this._convertGlobalOptionsToConfigOptions(vfsInfo.projectRoot, mountPaths);
 
         if (this.rawConfigJson) {
-            configOptions.initializeFromJson(this.rawConfigJson, 'basic', this.console, this.fs, testAccessHost);
+            configOptions.initializeFromJson(this.rawConfigJson, 'basic', this.serviceProvider, testAccessHost);
             this._applyTestConfigOptions(configOptions);
         }
-
-        this.serviceProvider = createServiceProvider(this.fs, this.console);
 
         const service = this._createAnalysisService(
             this.console,
@@ -231,6 +234,16 @@ export class TestState {
 
     get program(): Program {
         return this.workspace.service.test_program;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    get BOF(): number {
+        return 0;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    get EOF(): number {
+        return this.getFileContent(this.activeFile.fileName).length;
     }
 
     initializeFiles() {
@@ -426,12 +439,11 @@ export class TestState {
     }
 
     goToBOF() {
-        this.goToPosition(0);
+        this.goToPosition(this.BOF);
     }
 
     goToEOF() {
-        const len = this.getFileContent(this.activeFile.fileName).length;
-        this.goToPosition(len);
+        this.goToPosition(this.EOF);
     }
 
     moveCaretRight(count = 1) {
@@ -680,7 +692,7 @@ export class TestState {
         verifyMode: _.FourSlashVerificationMode,
         map: {
             [marker: string]: {
-                codeActions: { title: string; kind: string; command?: Command; edit?: WorkspaceEdit[] }[];
+                codeActions: { title: string; kind: string; command?: Command; edit?: WorkspaceEdit }[];
             };
         }
     ): Promise<any> {
@@ -1136,16 +1148,20 @@ export class TestState {
         }
     }
 
-    verifyFindAllReferences(map: {
-        [marker: string]: {
-            references: DocumentRange[];
-        };
-    }) {
+    verifyFindAllReferences(
+        map: {
+            [marker: string]: {
+                references: DocumentRange[];
+            };
+        },
+        createDocumentRange?: (filePath: string, result: CollectionResult, parseResults: ParseResults) => DocumentRange,
+        convertToLocation?: (fs: ReadOnlyFileSystem, ranges: DocumentRange) => Location | undefined
+    ) {
         this.analyze();
 
-        for (const marker of this.getMarkers()) {
+        for (const name of this.getMarkerNames()) {
+            const marker = this.getMarkerByName(name);
             const fileName = marker.fileName;
-            const name = this.getMarkerName(marker);
 
             if (!(name in map)) {
                 continue;
@@ -1155,14 +1171,15 @@ export class TestState {
 
             const position = this.convertOffsetToPosition(fileName, marker.position);
 
-            const actual = new ReferencesProvider(this.program, CancellationToken.None).reportReferences(
-                fileName,
-                position,
-                /* includeDeclaration */ true
-            );
+            const actual = new ReferencesProvider(
+                this.program,
+                CancellationToken.None,
+                createDocumentRange,
+                convertToLocation
+            ).reportReferences(fileName, position, /* includeDeclaration */ true);
             assert.strictEqual(actual?.length ?? 0, expected.length, `${name} has failed`);
 
-            for (const r of convertDocumentRangesToLocation(this.program.fileSystem, expected)) {
+            for (const r of convertDocumentRangesToLocation(this.program.fileSystem, expected, convertToLocation)) {
                 assert.equal(actual?.filter((d) => this._deepEqual(d, r)).length, 1);
             }
         }
@@ -1612,14 +1629,14 @@ export class TestState {
             configOptions.stubPath = normalizePath(combinePaths(vfs.MODULE_PATH, 'typings'));
         }
 
-        configOptions.include.push(getFileSpec(this.fs, configOptions.projectRoot, '.'));
-        configOptions.exclude.push(getFileSpec(this.fs, configOptions.projectRoot, typeshedFolder));
-        configOptions.exclude.push(getFileSpec(this.fs, configOptions.projectRoot, distlibFolder));
-        configOptions.exclude.push(getFileSpec(this.fs, configOptions.projectRoot, libFolder));
+        configOptions.include.push(getFileSpec(this.serviceProvider, configOptions.projectRoot, '.'));
+        configOptions.exclude.push(getFileSpec(this.serviceProvider, configOptions.projectRoot, typeshedFolder));
+        configOptions.exclude.push(getFileSpec(this.serviceProvider, configOptions.projectRoot, distlibFolder));
+        configOptions.exclude.push(getFileSpec(this.serviceProvider, configOptions.projectRoot, libFolder));
 
         if (mountPaths) {
             for (const mountPath of mountPaths.keys()) {
-                configOptions.exclude.push(getFileSpec(this.fs, configOptions.projectRoot, mountPath));
+                configOptions.exclude.push(getFileSpec(this.serviceProvider, configOptions.projectRoot, mountPath));
             }
         }
 
@@ -1632,12 +1649,15 @@ export class TestState {
 
     private _getParseResult(fileName: string) {
         const file = this.program.getBoundSourceFile(fileName)!;
-        return file.getParseResults()!;
+        return file?.getParseResults();
     }
 
     private _getTextRangeCollection(fileName: string): TextRangeCollection<TextRange> {
-        if (fileName in this.files) {
-            return this._getParseResult(fileName).tokenizerOutput.lines;
+        if (this.files.includes(fileName)) {
+            const parseResults = this._getParseResult(fileName);
+            if (parseResults) {
+                return parseResults.tokenizerOutput.lines;
+            }
         }
 
         // slow path
@@ -1658,7 +1678,13 @@ export class TestState {
     }
 
     private _editScriptAndUpdateMarkers(fileName: string, editStart: number, editEnd: number, newText: string) {
-        // this.languageServiceAdapterHost.editScript(fileName, editStart, editEnd, newText);
+        let fileContent = this.getFileContent(fileName);
+        fileContent = fileContent.slice(0, editStart) + newText + fileContent.slice(editEnd);
+
+        this.testFS.writeFileSync(fileName, fileContent, 'utf8');
+        const newVersion = (this.program.getSourceFile(fileName)?.getClientVersion() ?? -1) + 1;
+        this.program.setFileOpened(fileName, newVersion, fileContent);
+
         for (const marker of this.testData.markers) {
             if (marker.fileName === fileName) {
                 marker.position = this._updatePosition(marker.position, editStart, editEnd, newText);

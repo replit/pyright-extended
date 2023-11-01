@@ -23,11 +23,12 @@ import {
     FunctionType,
     FunctionTypeFlags,
     isAnyOrUnknown,
+    isClass,
     isFunction,
     isInstantiableClass,
     isTypeSame,
     isTypeVar,
-    NoneType,
+    ModuleType,
     OverloadedFunctionType,
     Type,
     UnknownType,
@@ -281,7 +282,7 @@ function addGetMethodToPropertySymbolTable(evaluator: TypeEvaluator, propertyObj
     FunctionType.addParameter(getFunction1, {
         category: ParameterCategory.Simple,
         name: 'obj',
-        type: NoneType.createInstance(),
+        type: evaluator.getNoneType(),
         hasDeclaredType: true,
     });
     FunctionType.addParameter(getFunction1, {
@@ -296,6 +297,7 @@ function addGetMethodToPropertySymbolTable(evaluator: TypeEvaluator, propertyObj
         ? FunctionType.getSpecializedReturnType(fget)
         : propertyObject;
     getFunction1.details.declaration = fget.details.declaration;
+    getFunction1.details.deprecatedMessage = fget.details.deprecatedMessage;
 
     // Override the scope ID since we're using parameter types from the
     // decorated function.
@@ -328,6 +330,7 @@ function addGetMethodToPropertySymbolTable(evaluator: TypeEvaluator, propertyObj
     });
     getFunction2.details.declaredReturnType = FunctionType.getSpecializedReturnType(fget);
     getFunction2.details.declaration = fget.details.declaration;
+    getFunction2.details.deprecatedMessage = fget.details.deprecatedMessage;
 
     // Override the scope ID since we're using parameter types from the
     // decorated function.
@@ -361,15 +364,16 @@ function addSetMethodToPropertySymbolTable(evaluator: TypeEvaluator, propertyObj
     FunctionType.addParameter(setFunction, {
         category: ParameterCategory.Simple,
         name: 'obj',
-        type: combineTypes([objType, NoneType.createInstance()]),
+        type: combineTypes([objType, evaluator.getNoneType()]),
         hasDeclaredType: true,
     });
 
-    setFunction.details.declaredReturnType = NoneType.createInstance();
+    setFunction.details.declaredReturnType = evaluator.getNoneType();
 
     // Adopt the TypeVarScopeId of the fset function in case it has any
     // TypeVars that need to be solved.
     setFunction.details.typeVarScopeId = getTypeVarScopeId(fset);
+    setFunction.details.deprecatedMessage = fset.details.deprecatedMessage;
 
     let setParamType: Type = UnknownType.create();
 
@@ -404,6 +408,7 @@ function addDelMethodToPropertySymbolTable(evaluator: TypeEvaluator, propertyObj
     // Adopt the TypeVarScopeId of the fdel function in case it has any
     // TypeVars that need to be solved.
     delFunction.details.typeVarScopeId = getTypeVarScopeId(fdel);
+    delFunction.details.deprecatedMessage = fdel.details.deprecatedMessage;
 
     let objType = fdel.details.parameters.length > 0 ? fdel.details.parameters[0].type : AnyType.create();
 
@@ -414,10 +419,10 @@ function addDelMethodToPropertySymbolTable(evaluator: TypeEvaluator, propertyObj
     FunctionType.addParameter(delFunction, {
         category: ParameterCategory.Simple,
         name: 'obj',
-        type: combineTypes([objType, NoneType.createInstance()]),
+        type: combineTypes([objType, evaluator.getNoneType()]),
         hasDeclaredType: true,
     });
-    delFunction.details.declaredReturnType = NoneType.createInstance();
+    delFunction.details.declaredReturnType = evaluator.getNoneType();
     const delSymbol = Symbol.createWithType(SymbolFlags.ClassMember, delFunction);
     fields.set('__delete__', delSymbol);
 }
@@ -473,13 +478,13 @@ export function assignProperty(
     destPropertyType: ClassType,
     srcPropertyType: ClassType,
     destClass: ClassType,
-    srcClass: ClassType,
+    srcClass: ClassType | ModuleType,
     diag: DiagnosticAddendum | undefined,
     typeVarContext?: TypeVarContext,
     selfTypeVarContext?: TypeVarContext,
     recursionCount = 0
 ): boolean {
-    const srcObjectToBind = ClassType.cloneAsInstance(srcClass);
+    const srcObjectToBind = isClass(srcClass) ? ClassType.cloneAsInstance(srcClass) : undefined;
     const destObjectToBind = ClassType.cloneAsInstance(destClass);
     let isAssignable = true;
     const accessors: { name: string; missingDiagMsg: () => string; incompatibleDiagMsg: () => string }[] = [
@@ -515,7 +520,9 @@ export function assignProperty(
             }
 
             evaluator.inferReturnTypeIfNecessary(srcAccessType);
-            srcAccessType = partiallySpecializeType(srcAccessType, srcClass) as FunctionType;
+            if (isClass(srcClass)) {
+                srcAccessType = partiallySpecializeType(srcAccessType, srcClass) as FunctionType;
+            }
 
             evaluator.inferReturnTypeIfNecessary(destAccessType);
             destAccessType = partiallySpecializeType(destAccessType, destClass) as FunctionType;
@@ -544,14 +551,18 @@ export function assignProperty(
                 destObjectToBind,
                 destAccessType,
                 /* memberClass */ undefined,
-                /* errorNode */ undefined,
+                /* treatConstructorAsClassMember */ undefined,
+                /* firstParamType */ undefined,
+                /* diag */ undefined,
                 recursionCount
             );
             const boundSrcAccessType = evaluator.bindFunctionToClassOrObject(
                 srcObjectToBind,
                 srcAccessType,
                 /* memberClass */ undefined,
-                /* errorNode */ undefined,
+                /* treatConstructorAsClassMember */ undefined,
+                /* firstParamType */ undefined,
+                /* diag */ undefined,
                 recursionCount
             );
 

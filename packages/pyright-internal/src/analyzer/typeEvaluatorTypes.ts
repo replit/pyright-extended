@@ -145,6 +145,10 @@ export const enum EvaluatorFlags {
     // Disallow a type alias defined with a "type" statement.
     DisallowPep695TypeAlias = 1 << 24,
 
+    // If evaluation is a TypeVarType that is a ParamSpec, do
+    // not convert it to its corresponding ParamSpec runtime object.
+    SkipConvertParamSpecToRuntimeObject = 1 << 25,
+
     // Defaults used for evaluating the LHS of a call expression.
     CallBaseDefaults = DoNotSpecialize | DisallowPep695TypeAlias,
 
@@ -167,7 +171,7 @@ export interface TypeResult<T extends Type = Type> {
     // as the class or object used to bind the member, but the
     // "super" call can specify a different class or object to
     // bind.
-    bindToType?: ClassType | TypeVarType | undefined;
+    bindToSelfType?: ClassType | TypeVarType | undefined;
 
     unpackedType?: Type | undefined;
     typeList?: TypeResultWithNode[] | undefined;
@@ -180,12 +184,14 @@ export interface TypeResult<T extends Type = Type> {
 
     // Used for getTypeOfObjectMember to indicate that class
     // that declares the member.
-    classType?: ClassType | UnknownType;
+    classType?: ClassType | UnknownType | AnyType;
 
     // Variadic type arguments allow the shorthand "()" to
     // represent an empty tuple (i.e. Tuple[()]).
     isEmptyTupleShorthand?: boolean | undefined;
 
+    // Additional diagnostic information that explains why the expression
+    // type is incompatible with the expected type.
     expectedTypeDiagAddendum?: DiagnosticAddendum | undefined;
 
     // Is member a descriptor object that is asymmetric with respect
@@ -201,10 +207,23 @@ export interface TypeResult<T extends Type = Type> {
 
     // If a call expression, which overloads were used to satisfy it?
     overloadsUsedForCall?: FunctionType[];
+
+    // For member access expressions, deprecation messages related to
+    // magic methods invoked via the member access
+    memberAccessDeprecationInfo?: MemberAccessDeprecationInfo;
 }
 
 export interface TypeResultWithNode extends TypeResult {
     node: ParseNode;
+}
+
+// Describes deprecation details about a symbol accessed via a member
+// access expression, perhaps through a property or descriptor accessor
+// method.
+export interface MemberAccessDeprecationInfo {
+    accessType: 'property' | 'descriptor';
+    accessMethod: 'get' | 'set' | 'del';
+    deprecationMessage: string;
 }
 
 export interface EvaluatorUsage {
@@ -368,11 +387,14 @@ export interface ClassMemberLookup {
     type: Type;
     isTypeIncomplete: boolean;
 
+    // True if access violates the type (used only for 'set' usage).
+    isSetTypeError: boolean;
+
     // True if class member, false otherwise.
     isClassMember: boolean;
 
     // The class that declares the accessed member.
-    classType?: ClassType | UnknownType;
+    classType?: ClassType | UnknownType | AnyType;
 
     // True if the member is explicitly declared as ClassVar
     // within a Protocol.
@@ -381,6 +403,9 @@ export interface ClassMemberLookup {
     // Is member a descriptor object that is asymmetric with respect
     // to __get__ and __set__ types?
     isAsymmetricAccessor: boolean;
+
+    // Deprecation messages related to magic methods invoked via the member access.
+    memberAccessDeprecationInfo?: MemberAccessDeprecationInfo;
 }
 
 export interface PrintTypeOptions {
@@ -429,11 +454,6 @@ export const enum MemberAccessFlags {
     // it is invoked implicitly through a constructor call, it
     // acts like a class method instead.
     TreatConstructorAsClassMethod = 1 << 5,
-
-    // By default, class member lookups start with the class itself
-    // and fall back on the metaclass if it's not found. This option
-    // skips the first check.
-    ConsiderMetaclassOnly = 1 << 6,
 
     // If an attribute cannot be found when looking for instance
     // members, normally an attribute access override method
@@ -514,16 +534,19 @@ export interface TypeEvaluator {
     getTypeOfIterable: (
         typeResult: TypeResult,
         isAsync: boolean,
-        errorNode: ExpressionNode | undefined
+        errorNode: ExpressionNode,
+        emitNotIterableError?: boolean
     ) => TypeResult | undefined;
     getTypeOfIterator: (
         typeResult: TypeResult,
         isAsync: boolean,
-        errorNode: ExpressionNode | undefined
+        errorNode: ExpressionNode,
+        emitNotIterableError?: boolean
     ) => TypeResult | undefined;
     getGetterTypeFromProperty: (propertyClass: ClassType, inferTypeIfNeeded: boolean) => Type | undefined;
     getTypeOfArgument: (arg: FunctionArgument) => TypeResult;
     markNamesAccessed: (node: ParseNode, names: string[]) => void;
+    expandPromotionTypes: (node: ParseNode, type: Type) => Type;
     makeTopLevelTypeVarsConcrete: (type: Type, makeParamSpecsConcrete?: boolean) => Type;
     mapSubtypesExpandTypeVars: (
         type: Type,
@@ -556,18 +579,17 @@ export interface TypeEvaluator {
         memberName: string,
         usage?: EvaluatorUsage,
         diag?: DiagnosticAddendum | undefined,
-        memberAccessFlags?: MemberAccessFlags,
-        bindToType?: ClassType | TypeVarType
+        flags?: MemberAccessFlags,
+        selfType?: ClassType | TypeVarType
     ): TypeResult | undefined;
     getTypeOfClassMemberName: (
         errorNode: ExpressionNode,
         classType: ClassType,
-        isAccessedThroughObject: boolean,
         memberName: string,
         usage: EvaluatorUsage,
         diag: DiagnosticAddendum | undefined,
         flags: MemberAccessFlags,
-        bindToType?: ClassType | TypeVarType
+        selfType?: ClassType | TypeVarType
     ) => ClassMemberLookup | undefined;
     getBoundMethod: (
         classType: ClassType,
@@ -575,10 +597,10 @@ export interface TypeEvaluator {
         recursionCount?: number,
         treatConstructorAsClassMember?: boolean
     ) => FunctionType | OverloadedFunctionType | undefined;
-    getTypeOfMagicMethodReturn: (
+    getTypeOfMagicMethodCall: (
         objType: Type,
-        args: TypeResult[],
-        magicMethodName: string,
+        methodName: string,
+        argList: TypeResult[],
         errorNode: ExpressionNode,
         inferenceContext: InferenceContext | undefined
     ) => Type | undefined;
@@ -586,10 +608,10 @@ export interface TypeEvaluator {
         baseType: ClassType | undefined,
         memberType: FunctionType | OverloadedFunctionType,
         memberClass?: ClassType,
-        errorNode?: ParseNode,
-        recursionCount?: number,
         treatConstructorAsClassMember?: boolean,
-        firstParamType?: ClassType | TypeVarType
+        selfType?: ClassType | TypeVarType,
+        diag?: DiagnosticAddendum,
+        recursionCount?: number
     ) => FunctionType | OverloadedFunctionType | undefined;
     getCallSignatureInfo: (node: CallNode, activeIndex: number, activeOrFake: boolean) => CallSignatureInfo | undefined;
     getAbstractMethods: (classType: ClassType) => AbstractMethod[];
@@ -628,9 +650,10 @@ export interface TypeEvaluator {
     ) => void;
     assignClassToSelf: (destType: ClassType, srcType: ClassType) => boolean;
     getBuiltInObject: (node: ParseNode, name: string, typeArguments?: Type[]) => Type;
-    getTypedDictClassType: () => Type | undefined;
-    getTupleClassType: () => Type | undefined;
-    getObjectType: () => Type | undefined;
+    getTypedDictClassType: () => ClassType | undefined;
+    getTupleClassType: () => ClassType | undefined;
+    getObjectType: () => Type;
+    getNoneType: () => Type;
     getTypingType: (node: ParseNode, symbolName: string) => Type | undefined;
     inferReturnTypeIfNecessary: (type: Type) => void;
     inferTypeParameterVarianceForClass: (type: ClassType) => void;
