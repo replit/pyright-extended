@@ -93,7 +93,7 @@ function _runRuff(fp: string, buf: string, ...extraArgs: string[]): SpawnSyncRet
         '--stdin-filename',
         fp,
         '--quiet',
-        '--format=json',
+        '--output-format=json',
         '--force-exclude',
         ...(extraArgs ?? []),
         '-',
