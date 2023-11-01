@@ -8,14 +8,12 @@
 
 import { CancellationToken } from 'vscode-languageserver';
 
-import { getFileInfo } from '../analyzer/analyzerNodeInfo';
 import { Declaration } from '../analyzer/declaration';
 import { ImportResolver } from '../analyzer/importResolver';
 import * as prog from '../analyzer/program';
-import * as src from '../analyzer/sourceFileInfo';
 import { SourceMapper } from '../analyzer/sourceMapper';
 import { TypeEvaluator } from '../analyzer/typeEvaluatorTypes';
-import { LanguageServerBase, LanguageServerInterface } from '../languageServerBase';
+import { ServerSettings } from '../languageServerBase';
 import { ParseNode } from '../parser/parseNodes';
 import { ParseResults } from '../parser/parser';
 import { ConfigOptions } from './configOptions';
@@ -25,18 +23,7 @@ import { Range } from './textRange';
 import { SymbolTable } from '../analyzer/symbol';
 import { Diagnostic } from '../common/diagnostic';
 import { IPythonMode } from '../analyzer/sourceFile';
-import { ServiceKey } from './serviceProvider';
-
-export interface LanguageServiceExtension {
-    // empty
-}
-
-export interface ProgramExtension {
-    readonly declarationProviderExtension?: DeclarationProviderExtension;
-
-    fileDirty?: (filePath: string) => void;
-    clearCache?: () => void;
-}
+import { GroupServiceKey, ServiceKey } from './serviceProvider';
 
 export interface SourceFile {
     // See whether we can convert these to regular properties.
@@ -77,7 +64,10 @@ export interface SourceFileInfo {
 
 export interface ServiceProvider {
     tryGet<T>(key: ServiceKey<T>): T | undefined;
+    tryGet<T>(key: GroupServiceKey<T>): readonly T[] | undefined;
+
     get<T>(key: ServiceKey<T>): T;
+    get<T>(key: GroupServiceKey<T>): readonly T[];
 }
 
 // Readonly wrapper around a Program. Makes sure it doesn't mutate the program.
@@ -108,7 +98,6 @@ export interface ProgramView {
     getDiagnosticsForRange(filePath: string, range: Range): Diagnostic[];
 
     // See whether we can get rid of these methods
-    getBoundSourceFileInfo(file: string, content?: string, force?: boolean): src.SourceFileInfo | undefined;
     handleMemoryHighUsage(): void;
     clone(): prog.Program;
 }
@@ -143,126 +132,37 @@ export interface ProgramMutator {
     ): void;
 }
 
-export interface ExtensionFactory {
-    createProgramExtension?: (view: ProgramView, mutator: ProgramMutator) => ProgramExtension;
-    createLanguageServiceExtension?: (languageserver: LanguageServerInterface) => LanguageServiceExtension;
-}
-
-export enum DeclarationUseCase {
-    Definition,
+export enum ReferenceUseCase {
     Rename,
     References,
 }
 
-export interface DeclarationProviderExtension {
-    tryGetDeclarations(
-        evaluator: TypeEvaluator,
-        node: ParseNode,
-        offset: number,
-        useCase: DeclarationUseCase,
+export interface SymbolDefinitionProvider {
+    tryGetDeclarations(node: ParseNode, offset: number, token: CancellationToken): Declaration[];
+}
+
+export interface SymbolUsageProviderFactory {
+    tryCreateProvider(
+        useCase: ReferenceUseCase,
+        declarations: readonly Declaration[],
         token: CancellationToken
-    ): Declaration[];
+    ): SymbolUsageProvider | undefined;
 }
 
-interface OwnedProgramExtension extends ProgramExtension {
-    readonly view: ProgramView;
+/**
+ * All Apis are supposed to be `idempotent` and `deterministic`
+ *
+ * All Apis should return the same results regardless how often there are called
+ * in whatever orders for the same inputs.
+ */
+export interface SymbolUsageProvider {
+    appendSymbolNamesTo(symbolNames: Set<string>): void;
+    appendDeclarationsTo(to: Declaration[]): void;
+    appendDeclarationsAt(context: ParseNode, from: readonly Declaration[], to: Declaration[]): void;
 }
 
-interface OwnedLanguageServiceExtension extends LanguageServiceExtension {
-    readonly owner: LanguageServerBase;
-}
-
-export namespace Extensions {
-    const factories: ExtensionFactory[] = [];
-    let programExtensions: OwnedProgramExtension[] = [];
-    let languageServiceExtensions: OwnedLanguageServiceExtension[] = [];
-
-    export function register(entries: ExtensionFactory[]) {
-        factories.push(...entries);
-    }
-    export function createProgramExtensions(view: ProgramView, mutator: ProgramMutator) {
-        programExtensions.push(
-            ...(factories
-                .map((s) => {
-                    let result = s.createProgramExtension ? s.createProgramExtension(view, mutator) : undefined;
-                    if (result) {
-                        // Add the extra parameter that we use for finding later.
-                        result = Object.defineProperty(result, 'view', { value: view });
-                    }
-                    return result;
-                })
-                .filter((s) => !!s) as OwnedProgramExtension[])
-        );
-    }
-
-    export function destroyProgramExtensions(viewId: string) {
-        programExtensions = programExtensions.filter((s) => s.view.id !== viewId);
-    }
-
-    export function createLanguageServiceExtensions(languageServer: LanguageServerInterface) {
-        languageServiceExtensions.push(
-            ...(factories
-                .map((s) => {
-                    let result = s.createLanguageServiceExtension
-                        ? s.createLanguageServiceExtension(languageServer)
-                        : undefined;
-                    if (result && !(result as any).owner) {
-                        // Add the extra parameter that we use for finding later.
-                        result = Object.defineProperty(result, 'owner', { value: languageServer });
-                    }
-                    return result;
-                })
-                .filter((s) => !!s) as OwnedLanguageServiceExtension[])
-        );
-    }
-
-    export function destroyLanguageServiceExtensions(languageServer: LanguageServerBase) {
-        languageServiceExtensions = languageServiceExtensions.filter((s) => s.owner !== languageServer);
-    }
-
-    function getBestProgram(filePath: string): ProgramView {
-        // Find the best program to use for this file.
-        const programs = [...new Set<ProgramView>(programExtensions.map((s) => s.view))];
-        let bestProgram: ProgramView | undefined;
-        programs.forEach((program) => {
-            // If the file is tracked by this program, use it.
-            if (program.owns(filePath)) {
-                if (!bestProgram || filePath.startsWith(program.rootPath)) {
-                    bestProgram = program;
-                }
-            }
-        });
-
-        // If we didn't find a program that tracks the file, use the first one that claims ownership.
-        if (bestProgram === undefined) {
-            if (programs.length === 1) {
-                bestProgram = programs[0];
-            } else {
-                bestProgram = programs.find((p) => p.getBoundSourceFileInfo(filePath)) || programs[0];
-            }
-        }
-        return bestProgram;
-    }
-
-    export function getProgramExtensions(nodeOrFilePath: ParseNode | string) {
-        const filePath =
-            typeof nodeOrFilePath === 'string' ? nodeOrFilePath.toString() : getFileInfo(nodeOrFilePath).filePath;
-        const bestProgram = getBestProgram(filePath);
-
-        return getProgramExtensionsForView(bestProgram);
-    }
-
-    export function getLanguageServiceExtensions() {
-        return languageServiceExtensions as LanguageServiceExtension[];
-    }
-
-    export function getProgramExtensionsForView(view: ProgramView) {
-        return programExtensions.filter((s) => s.view === view) as ProgramExtension[];
-    }
-
-    export function unregister() {
-        programExtensions.splice(0, programExtensions.length);
-        languageServiceExtensions.splice(0, languageServiceExtensions.length);
-        factories.splice(0, factories.length);
-    }
+export interface StatusMutationListener {
+    fileDirty?: (filePath: string) => void;
+    clearCache?: () => void;
+    updateSettings?: <T extends ServerSettings>(settings: T) => void;
 }

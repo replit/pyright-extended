@@ -679,6 +679,29 @@ export function getEnclosingFunction(node: ParseNode): FunctionNode | undefined 
     return undefined;
 }
 
+// This is similar to getEnclosingFunction except that it uses evaluation
+// scopes rather than the parse tree to determine whether the specified node
+// is within the scope. That means if the node is within a class decorator
+// (for example), it will be considered part of its parent node rather than
+// the class node.
+export function getEnclosingFunctionEvaluationScope(node: ParseNode): FunctionNode | undefined {
+    let curNode = getEvaluationScopeNode(node);
+
+    while (curNode) {
+        if (curNode.nodeType === ParseNodeType.Function) {
+            return curNode;
+        }
+
+        if (curNode.nodeType === ParseNodeType.Class || !curNode.parent) {
+            return undefined;
+        }
+
+        curNode = getEvaluationScopeNode(curNode.parent);
+    }
+
+    return undefined;
+}
+
 export function getEnclosingLambda(node: ParseNode): LambdaNode | undefined {
     let curNode = node.parent;
     while (curNode) {
@@ -940,6 +963,19 @@ export function getTypeAnnotationNode(node: ParseNode): TypeAnnotationNode | und
     }
 
     return undefined;
+}
+
+// In general, arguments passed to a call are evaluated by the runtime in
+// left-to-right order. There is one exception, however, when an unpacked
+// iterable is used after a keyword argument.
+export function getArgumentsByRuntimeOrder(node: CallNode) {
+    const positionalArgs = node.arguments.filter(
+        (arg) => !arg.name && arg.argumentCategory !== ArgumentCategory.UnpackedDictionary
+    );
+    const keywordArgs = node.arguments.filter(
+        (arg) => !!arg.name || arg.argumentCategory === ArgumentCategory.UnpackedDictionary
+    );
+    return positionalArgs.concat(keywordArgs);
 }
 
 // PEP 591 spells out certain limited cases where an assignment target
@@ -1572,6 +1608,11 @@ export function getEnclosingParameter(node: ParseNode): ParameterNode | undefine
         if (curNode.nodeType === ParseNodeType.Parameter) {
             return curNode;
         }
+
+        if (curNode.nodeType === ParseNodeType.Function) {
+            return undefined;
+        }
+
         curNode = curNode.parent;
     }
 

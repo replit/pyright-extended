@@ -13,7 +13,7 @@ import { isMainThread } from 'worker_threads';
 import { ChokidarFileWatcherProvider } from './chokidarFileWatcherProvider';
 
 import { ConsoleInterface, NullConsole } from './console';
-import { FileSystem, MkDirOptions, TmpfileOptions } from './fileSystem';
+import { FileSystem, MkDirOptions, TempFile, TmpfileOptions } from './fileSystem';
 import {
     FileWatcher,
     FileWatcherEventHandler,
@@ -22,7 +22,7 @@ import {
     FileWatcherProvider,
     nullFileWatcherProvider,
 } from './fileWatcher';
-import { combinePaths, getDirectoryPath, getFileName, getRootLength } from './pathUtils';
+import { combinePaths, getRootLength, isUri } from './pathUtils';
 
 // Automatically remove files created by tmp at process exit.
 tmp.setGracefulCleanup();
@@ -209,8 +209,6 @@ class YarnFS extends PosixFS {
 const yarnFS = new YarnFS();
 
 class RealFileSystem implements FileSystem {
-    private _tmpdir?: tmp.DirResult;
-
     constructor(private _fileWatcherProvider: FileWatcherProvider, private _console: ConsoleInterface) {}
 
     existsSync(path: string) {
@@ -235,21 +233,11 @@ class RealFileSystem implements FileSystem {
     }
 
     readdirSync(path: string): string[] {
-        return yarnFS.readdirSync(path).map((entry) => {
-            // Make sure the entry name is the real case.
-            const fullPath = combinePaths(path, entry);
-            const realPath = this.realCasePath(fullPath);
-            return getFileName(realPath);
-        });
+        return yarnFS.readdirSync(path);
     }
 
     readdirEntriesSync(path: string): fs.Dirent[] {
         return yarnFS.readdirSync(path, { withFileTypes: true }).map((entry): fs.Dirent => {
-            // Make sure the entry name is the real case.
-            const fullPath = combinePaths(path, entry.name);
-            const realPath = this.realCasePath(fullPath);
-            (entry.name as any) = getFileName(realPath);
-
             // Treat zip/egg files as directories.
             // See: https://github.com/yarnpkg/berry/blob/master/packages/vscode-zipfs/sources/ZipFSProvider.ts
             if (hasZipExtension(entry.name)) {
@@ -290,12 +278,10 @@ class RealFileSystem implements FileSystem {
         // See: https://github.com/yarnpkg/berry/blob/master/packages/vscode-zipfs/sources/ZipFSProvider.ts
         if (hasZipExtension(path)) {
             if (stat.isFile() && yarnFS.isZip(path)) {
-                return {
-                    ...stat,
-                    isFile: () => false,
-                    isDirectory: () => true,
-                    isZipDirectory: () => true,
-                };
+                stat.isFile = () => false;
+                stat.isDirectory = () => true;
+                (stat as any).isZipDirectory = () => true;
+                return stat;
             }
         }
         return stat;
@@ -355,38 +341,29 @@ class RealFileSystem implements FileSystem {
         return buffer.toString(encoding);
     }
 
-    tmpdir() {
-        if (!this._tmpdir) {
-            this._tmpdir = tmp.dirSync({ prefix: 'pyright' });
-        }
-
-        return this._tmpdir.name;
-    }
-
-    tmpfile(options?: TmpfileOptions): string {
-        const f = tmp.fileSync({ dir: this.tmpdir(), discardDescriptor: true, ...options });
-        return f.name;
-    }
-
     realCasePath(path: string): string {
         try {
-            // If it doesn't exist in the real FS, try going up a level and combining it.
-            if (!fs.existsSync(path)) {
-                if (getRootLength(path) <= 0) {
-                    return path;
-                }
-                return combinePaths(this.realCasePath(getDirectoryPath(path)), getFileName(path));
+            // If it doesn't exist in the real FS, then just use this path.
+            if (!this.existsSync(path)) {
+                return this._getNormalizedPath(path);
             }
 
             // If it does exist, skip this for symlinks.
-            const stat = fs.statSync(path);
+            const stat = fs.lstatSync(path);
             if (stat.isSymbolicLink()) {
-                return path;
+                return this._getNormalizedPath(path);
             }
 
             // realpathSync.native will return casing as in OS rather than
             // trying to preserve casing given.
-            return fs.realpathSync.native(path);
+            const realCase = fs.realpathSync.native(path);
+
+            // On UNC mapped drives we want to keep the original drive letter.
+            if (getRootLength(realCase) !== getRootLength(path)) {
+                return path;
+            }
+
+            return realCase;
         } catch (e: any) {
             // Return as it is, if anything failed.
             this._console.log(`Failed to get real file system casing for ${path}: ${e}`);
@@ -408,6 +385,10 @@ class RealFileSystem implements FileSystem {
     }
 
     getUri(path: string): string {
+        // If this is not a file path, just return the original path.
+        if (isUri(path)) {
+            return path;
+        }
         return URI.file(path).toString();
     }
 
@@ -415,13 +396,16 @@ class RealFileSystem implements FileSystem {
         return /[^\\/]\.(?:egg|zip|jar)[\\/]/.test(path) && yarnFS.isZip(path);
     }
 
-    dispose(): void {
-        try {
-            this._tmpdir?.removeCallback();
-            this._tmpdir = undefined;
-        } catch {
-            // ignore
+    private _getNormalizedPath(path: string) {
+        const driveLength = getRootLength(path);
+
+        if (driveLength === 0) {
+            return path;
         }
+
+        // `vscode` sometimes uses different casing for drive letter.
+        // Make sure we normalize at least drive letter.
+        return combinePaths(fs.realpathSync.native(path.substring(0, driveLength)), path.substring(driveLength));
     }
 }
 
@@ -471,5 +455,31 @@ export class WorkspaceFileWatcherProvider implements FileWatcherProvider, FileWa
                 watcher.eventHandler(eventType, filePath);
             }
         });
+    }
+}
+
+export class RealTempFile implements TempFile {
+    private _tmpdir?: tmp.DirResult;
+
+    tmpdir() {
+        if (!this._tmpdir) {
+            this._tmpdir = tmp.dirSync({ prefix: 'pyright' });
+        }
+
+        return this._tmpdir.name;
+    }
+
+    tmpfile(options?: TmpfileOptions): string {
+        const f = tmp.fileSync({ dir: this.tmpdir(), discardDescriptor: true, ...options });
+        return f.name;
+    }
+
+    dispose(): void {
+        try {
+            this._tmpdir?.removeCallback();
+            this._tmpdir = undefined;
+        } catch {
+            // ignore
+        }
     }
 }

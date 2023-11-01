@@ -79,7 +79,6 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { formatBufferWithYapf } from '../../pyright-yapf';
 import { AnalysisResults } from './analyzer/analysis';
 import { BackgroundAnalysisProgram, InvalidatedReason } from './analyzer/backgroundAnalysisProgram';
-import { CacheManager } from './analyzer/cacheManager';
 import { ImportResolver } from './analyzer/importResolver';
 import { MaxAnalysisTime } from './analyzer/program';
 import { AnalyzerService, configFileNames, getNextServiceId } from './analyzer/service';
@@ -103,12 +102,18 @@ import {
 } from './common/diagnostic';
 import { DiagnosticRule } from './common/diagnosticRules';
 import { FileDiagnostics } from './common/diagnosticSink';
-import { Extensions } from './common/extensibility';
-import { FileSystem } from './common/fileSystem';
 import { FileWatcherEventType, FileWatcherHandler, FileWatcherProvider } from './common/fileWatcher';
+import { FileSystem, ReadOnlyFileSystem } from './common/fileSystem';
 import { Host } from './common/host';
 import { fromLSPAny } from './common/lspUtils';
-import { convertPathToUri, deduplicateFolders, getDirectoryPath, getFileName, isFile } from './common/pathUtils';
+import {
+    convertPathToUri,
+    convertUriToPath,
+    deduplicateFolders,
+    getDirectoryPath,
+    getFileName,
+    isFile,
+} from './common/pathUtils';
 import { ProgressReportTracker, ProgressReporter } from './common/progressReporter';
 import { ServiceProvider } from './common/serviceProvider';
 import { DocumentRange, Position, Range } from './common/textRange';
@@ -118,6 +123,7 @@ import { CallHierarchyProvider } from './languageService/callHierarchyProvider';
 import { CompletionItemData, CompletionProvider } from './languageService/completionProvider';
 import { DefinitionFilter, DefinitionProvider, TypeDefinitionProvider } from './languageService/definitionProvider';
 import { DocumentHighlightProvider } from './languageService/documentHighlightProvider';
+import { CollectionResult } from './languageService/documentSymbolCollector';
 import { DocumentSymbolProvider } from './languageService/documentSymbolProvider';
 import { HoverProvider } from './languageService/hoverProvider';
 import { canNavigateToFile } from './languageService/navigationUtils';
@@ -126,7 +132,7 @@ import { RenameProvider } from './languageService/renameProvider';
 import { SignatureHelpProvider } from './languageService/signatureHelpProvider';
 import { WorkspaceSymbolProvider } from './languageService/workspaceSymbolProvider';
 import { Localizer, setLocaleOverride } from './localization/localize';
-import { SupportUriToPathMapping } from './pyrightFileSystem';
+import { ParseResults } from './parser/parser';
 import { InitStatus, WellKnownWorkspaceKinds, Workspace, WorkspaceFactory } from './workspaceFactory';
 
 export interface ServerSettings {
@@ -347,10 +353,10 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
 
     protected readonly workspaceFactory: WorkspaceFactory;
     protected readonly openFileMap = new Map<string, TextDocument>();
-    protected readonly cacheManager: CacheManager;
-
-    protected readonly uriMapper: SupportUriToPathMapping;
     protected readonly fs: FileSystem;
+
+    // The URIs for which diagnostics are reported
+    protected readonly documentsWithDiagnostics = new Set<string>();
 
     readonly uriParser: UriParser;
 
@@ -371,9 +377,6 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
 
         this.console.info(`Server root directory: ${serverOptions.rootDirectory}`);
 
-        this.cacheManager = new CacheManager();
-
-        this.uriMapper = this.serverOptions.serviceProvider.uriMapper();
         this.fs = this.serverOptions.serviceProvider.fs();
 
         this.uriParser = uriParserFactory(this.fs);
@@ -384,7 +387,8 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
             /* isWeb */ false,
             this.createAnalyzerServiceForWorkspace.bind(this),
             this.isPythonPathImmutable.bind(this),
-            this.onWorkspaceCreated.bind(this)
+            this.onWorkspaceCreated.bind(this),
+            this.onWorkspaceRemoved.bind(this)
         );
 
         // Set the working directory to a known location within
@@ -402,9 +406,6 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
 
         // Listen on the connection.
         this.connection.listen();
-
-        // Setup extensions
-        Extensions.createLanguageServiceExtensions(this);
     }
 
     get console(): ConsoleInterface {
@@ -454,7 +455,6 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
             backgroundAnalysisProgramFactory: this.createBackgroundAnalysisProgram.bind(this),
             cancellationProvider: this.serverOptions.cancellationProvider,
             libraryReanalysisTimeProvider,
-            cacheManager: this.cacheManager,
             serviceId,
             fileSystem: services?.fs ?? this.serverOptions.serviceProvider.fs(),
         });
@@ -614,8 +614,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
         configOptions: ConfigOptions,
         importResolver: ImportResolver,
         backgroundAnalysis?: BackgroundAnalysisBase,
-        maxAnalysisTime?: MaxAnalysisTime,
-        cacheManager?: CacheManager
+        maxAnalysisTime?: MaxAnalysisTime
     ): BackgroundAnalysisProgram {
         return new BackgroundAnalysisProgram(
             serviceId,
@@ -624,8 +623,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
             importResolver,
             backgroundAnalysis,
             maxAnalysisTime,
-            /* disableChecker */ undefined,
-            cacheManager
+            /* disableChecker */ undefined
         );
     }
 
@@ -913,14 +911,16 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
         params: ReferenceParams,
         token: CancellationToken,
         workDoneReporter: WorkDoneProgressReporter,
-        resultReporter: ResultProgressReporter<Location[]> | undefined
+        resultReporter: ResultProgressReporter<Location[]> | undefined,
+        createDocumentRange?: (filePath: string, result: CollectionResult, parseResults: ParseResults) => DocumentRange,
+        convertToLocation?: (fs: ReadOnlyFileSystem, ranges: DocumentRange) => Location | undefined
     ): Promise<Location[] | null | undefined> {
         if (this._pendingFindAllRefsCancellationSource) {
             this._pendingFindAllRefsCancellationSource.cancel();
             this._pendingFindAllRefsCancellationSource = undefined;
         }
 
-        // VS Code doesn't support cancellation of "final all references".
+        // VS Code doesn't support cancellation of "find all references".
         // We provide a progress bar a cancellation button so the user can cancel
         // any long-running actions.
         const progress = await this.getProgressReporter(
@@ -944,12 +944,12 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
             }
 
             return workspace.service.run((program) => {
-                return new ReferencesProvider(program, source.token).reportReferences(
-                    filePath,
-                    position,
-                    params.context.includeDeclaration,
-                    resultReporter
-                );
+                return new ReferencesProvider(
+                    program,
+                    source.token,
+                    createDocumentRange,
+                    convertToLocation
+                ).reportReferences(filePath, position, params.context.includeDeclaration, resultReporter);
             }, token);
         } finally {
             progress.reporter.done();
@@ -1204,11 +1204,6 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
     protected async onDidOpenTextDocument(params: DidOpenTextDocumentParams, ipythonMode = IPythonMode.None) {
         const filePath = this.uriParser.decodeTextDocumentUri(params.textDocument.uri);
 
-        if (!this.uriMapper.addUriMap(params.textDocument.uri, filePath)) {
-            // We do not support opening 1 file with 2 different uri.
-            return;
-        }
-
         let doc = this.openFileMap.get(filePath);
         if (doc) {
             // We shouldn't get an open text document request for an already-opened doc.
@@ -1230,11 +1225,6 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
         this.recordUserInteractionTime();
 
         const filePath = this.uriParser.decodeTextDocumentUri(params.textDocument.uri);
-        if (!this.uriMapper.hasUriMapEntry(params.textDocument.uri, filePath)) {
-            // We do not support opening 1 file with 2 different uri.
-            return;
-        }
-
         const doc = this.openFileMap.get(filePath);
         if (!doc) {
             // We shouldn't get a change text request for a closed doc.
@@ -1254,10 +1244,6 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
 
     protected async onDidCloseTextDocument(params: DidCloseTextDocumentParams) {
         const filePath = this.uriParser.decodeTextDocumentUri(params.textDocument.uri);
-        if (!this.uriMapper.removeUriMap(params.textDocument.uri, filePath)) {
-            // We do not support opening 1 file with 2 different uri.
-            return;
-        }
 
         // Send this close to all the workspaces that might contain this file.
         const workspaces = await this.getContainingWorkspacesForFile(filePath);
@@ -1355,8 +1341,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
                 return;
             }
 
-            this._sendDiagnostics(this.convertDiagnostics(fs, fileDiag));
-            this.uriMapper.pendingRequest(fileDiag.filePath, fileDiag.diagnostics.length > 0);
+            this.sendDiagnostics(this.convertDiagnostics(fs, fileDiag));
         });
 
         if (!this._progressReporter.isEnabled(results)) {
@@ -1391,6 +1376,27 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
         }
 
         // Otherwise the initialize completion should cause settings to be updated on all workspaces.
+    }
+    protected onWorkspaceRemoved(workspace: Workspace) {
+        const documentsWithDiagnosticsList = [...this.documentsWithDiagnostics];
+        const otherWorkspaces = this.workspaceFactory.items().filter((w) => w !== workspace);
+
+        for (const uri of documentsWithDiagnosticsList) {
+            const filePath = convertUriToPath(workspace.service.fs, uri);
+
+            if (workspace.service.isTracked(filePath)) {
+                // Do not clean up diagnostics for files tracked by multiple workspaces
+                if (otherWorkspaces.some((w) => w.service.isTracked(filePath))) {
+                    continue;
+                }
+                this.sendDiagnostics([
+                    {
+                        uri: uri,
+                        diagnostics: [],
+                    },
+                ]);
+            }
+        }
     }
 
     protected createAnalyzerServiceForWorkspace(
@@ -1464,6 +1470,17 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
         };
     }
 
+    protected sendDiagnostics(params: PublishDiagnosticsParams[]) {
+        for (const param of params) {
+            if (param.diagnostics.length === 0) {
+                this.documentsWithDiagnostics.delete(param.uri);
+            } else {
+                this.documentsWithDiagnostics.add(param.uri);
+            }
+            this.connection.sendDiagnostics(param);
+        }
+    }
+
     private _setupFileWatcher() {
         if (!this.client.hasWatchFileCapability) {
             // we won't get notifs from client for changes, let's spawn a watcher to track our own
@@ -1499,7 +1516,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
             });
         }
 
-        // File watcher is pylance wide service. Dispose all existing file watchers and create new ones.
+        // Dispose all existing file watchers and create new ones.
         this.connection.client.register(DidChangeWatchedFilesNotification.type, { watchers }).then((d) => {
             if (this._lastFileWatcherRegistration) {
                 this._lastFileWatcherRegistration.dispose();
@@ -1507,12 +1524,6 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
 
             this._lastFileWatcherRegistration = d;
         });
-    }
-
-    private _sendDiagnostics(params: PublishDiagnosticsParams[]) {
-        for (const param of params) {
-            this.connection.sendDiagnostics(param);
-        }
     }
 
     private _getCompatibleMarkupKind(clientSupportedFormats: MarkupKind[] | undefined) {

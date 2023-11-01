@@ -13,22 +13,24 @@ import { getPathsFromPthFiles } from '../analyzer/pythonPathUtils';
 import * as pathConsts from '../common/pathConsts';
 import { appendArray } from './collectionUtils';
 import { DiagnosticSeverityOverridesMap } from './commandLineOptions';
-import { ConsoleInterface } from './console';
+import { ConsoleInterface, NullConsole } from './console';
 import { TaskListToken } from './diagnostic';
 import { DiagnosticRule } from './diagnosticRules';
 import { FileSystem } from './fileSystem';
 import { Host } from './host';
 import {
+    FileSpec,
     combinePaths,
     ensureTrailingDirectorySeparator,
-    FileSpec,
     getFileSpec,
     isDirectory,
     normalizePath,
     realCasePath,
     resolvePaths,
 } from './pathUtils';
-import { latestStablePythonVersion, PythonVersion, versionFromString, versionToString } from './pythonVersion';
+import { PythonVersion, latestStablePythonVersion, versionFromString, versionToString } from './pythonVersion';
+import { ServiceProvider } from './serviceProvider';
+import { ServiceKeys } from './serviceProviderExtensions';
 
 export enum PythonPlatform {
     Darwin = 'Darwin',
@@ -117,6 +119,9 @@ export interface DiagnosticRuleSet {
 
     // Enable support for type: ignore comments?
     enableTypeIgnoreComments: boolean;
+
+    // No longer treat bytearray and memoryview as subclasses of bytes?
+    disableBytesTypePromotions: boolean;
 
     // Treat old typing aliases as deprecated if pythonVersion >= 3.9?
     deprecateTypingAliases: boolean;
@@ -345,6 +350,7 @@ export function getBooleanDiagnosticRules(includeNonOverridable = false) {
         DiagnosticRule.strictParameterNoneValue,
         DiagnosticRule.enableExperimentalFeatures,
         DiagnosticRule.deprecateTypingAliases,
+        DiagnosticRule.disableBytesTypePromotions,
     ];
 
     if (includeNonOverridable) {
@@ -449,6 +455,7 @@ export function getOffDiagnosticRuleSet(): DiagnosticRuleSet {
         enableExperimentalFeatures: false,
         enableTypeIgnoreComments: true,
         deprecateTypingAliases: false,
+        disableBytesTypePromotions: false,
         reportGeneralTypeIssues: 'none',
         reportPropertyTypeMismatch: 'none',
         reportFunctionMemberAccess: 'none',
@@ -533,6 +540,7 @@ export function getBasicDiagnosticRuleSet(): DiagnosticRuleSet {
         enableExperimentalFeatures: false,
         enableTypeIgnoreComments: true,
         deprecateTypingAliases: false,
+        disableBytesTypePromotions: false,
         reportGeneralTypeIssues: 'error',
         reportPropertyTypeMismatch: 'none',
         reportFunctionMemberAccess: 'none',
@@ -617,6 +625,7 @@ export function getStrictDiagnosticRuleSet(): DiagnosticRuleSet {
         enableExperimentalFeatures: false,
         enableTypeIgnoreComments: true, // Not overridden by strict mode
         deprecateTypingAliases: false,
+        disableBytesTypePromotions: true,
         reportGeneralTypeIssues: 'error',
         reportPropertyTypeMismatch: 'none',
         reportFunctionMemberAccess: 'error',
@@ -880,41 +889,38 @@ export class ConfigOptions {
     initializeFromJson(
         configObj: any,
         typeCheckingMode: string | undefined,
-        console: ConsoleInterface,
-        fs: FileSystem,
+        serviceProvider: ServiceProvider,
         host: Host,
-        diagnosticOverrides?: DiagnosticSeverityOverridesMap,
-        skipIncludeSection = false
+        diagnosticOverrides?: DiagnosticSeverityOverridesMap
     ) {
         this.initializedFromJson = true;
+        const console = serviceProvider.tryGet(ServiceKeys.console) ?? new NullConsole();
 
         // Read the "include" entry.
-        if (!skipIncludeSection) {
-            this.include = [];
-            if (configObj.include !== undefined) {
-                if (!Array.isArray(configObj.include)) {
-                    console.error(`Config "include" entry must must contain an array.`);
-                } else {
-                    const filesList = configObj.include as string[];
-                    filesList.forEach((fileSpec, index) => {
-                        if (typeof fileSpec !== 'string') {
-                            console.error(`Index ${index} of "include" array should be a string.`);
-                        } else if (isAbsolute(fileSpec)) {
-                            console.error(`Ignoring path "${fileSpec}" in "include" array because it is not relative.`);
-                        } else {
-                            this.include.push(getFileSpec(fs, this.projectRoot, fileSpec));
-                        }
-                    });
-                }
+        if (configObj.include !== undefined) {
+            if (!Array.isArray(configObj.include)) {
+                console.error(`Config "include" entry must must contain an array.`);
+            } else {
+                this.include = [];
+                const filesList = configObj.include as string[];
+                filesList.forEach((fileSpec, index) => {
+                    if (typeof fileSpec !== 'string') {
+                        console.error(`Index ${index} of "include" array should be a string.`);
+                    } else if (isAbsolute(fileSpec)) {
+                        console.error(`Ignoring path "${fileSpec}" in "include" array because it is not relative.`);
+                    } else {
+                        this.include.push(getFileSpec(serviceProvider, this.projectRoot, fileSpec));
+                    }
+                });
             }
         }
 
         // Read the "exclude" entry.
-        this.exclude = [];
         if (configObj.exclude !== undefined) {
             if (!Array.isArray(configObj.exclude)) {
                 console.error(`Config "exclude" entry must contain an array.`);
             } else {
+                this.exclude = [];
                 const filesList = configObj.exclude as string[];
                 filesList.forEach((fileSpec, index) => {
                     if (typeof fileSpec !== 'string') {
@@ -922,18 +928,18 @@ export class ConfigOptions {
                     } else if (isAbsolute(fileSpec)) {
                         console.error(`Ignoring path "${fileSpec}" in "exclude" array because it is not relative.`);
                     } else {
-                        this.exclude.push(getFileSpec(fs, this.projectRoot, fileSpec));
+                        this.exclude.push(getFileSpec(serviceProvider, this.projectRoot, fileSpec));
                     }
                 });
             }
         }
 
         // Read the "ignore" entry.
-        this.ignore = [];
         if (configObj.ignore !== undefined) {
             if (!Array.isArray(configObj.ignore)) {
                 console.error(`Config "ignore" entry must contain an array.`);
             } else {
+                this.ignore = [];
                 const filesList = configObj.ignore as string[];
                 filesList.forEach((fileSpec, index) => {
                     if (typeof fileSpec !== 'string') {
@@ -941,18 +947,18 @@ export class ConfigOptions {
                     } else if (isAbsolute(fileSpec)) {
                         console.error(`Ignoring path "${fileSpec}" in "ignore" array because it is not relative.`);
                     } else {
-                        this.ignore.push(getFileSpec(fs, this.projectRoot, fileSpec));
+                        this.ignore.push(getFileSpec(serviceProvider, this.projectRoot, fileSpec));
                     }
                 });
             }
         }
 
         // Read the "strict" entry.
-        this.strict = [];
         if (configObj.strict !== undefined) {
             if (!Array.isArray(configObj.strict)) {
                 console.error(`Config "strict" entry must contain an array.`);
             } else {
+                this.strict = [];
                 const filesList = configObj.strict as string[];
                 filesList.forEach((fileSpec, index) => {
                     if (typeof fileSpec !== 'string') {
@@ -960,7 +966,7 @@ export class ConfigOptions {
                     } else if (isAbsolute(fileSpec)) {
                         console.error(`Ignoring path "${fileSpec}" in "strict" array because it is not relative.`);
                     } else {
-                        this.strict.push(getFileSpec(fs, this.projectRoot, fileSpec));
+                        this.strict.push(getFileSpec(serviceProvider, this.projectRoot, fileSpec));
                     }
                 });
             }

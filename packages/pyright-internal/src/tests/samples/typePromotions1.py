@@ -28,3 +28,17 @@ IntNewType = NewType("IntNewType", int)
 
 def func4(x: IntNewType) -> float:
     return x
+
+
+def func5(f: float):
+    if isinstance(f, float):
+        reveal_type(f, expected_text="float")
+    else:
+        reveal_type(f, expected_text="int")
+
+
+def func6(f: complex):
+    if isinstance(f, float):
+        reveal_type(f, expected_text="float")
+    else:
+        reveal_type(f, expected_text="complex | int")

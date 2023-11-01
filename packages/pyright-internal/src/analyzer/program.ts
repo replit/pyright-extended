@@ -19,8 +19,7 @@ import { assert } from '../common/debug';
 import { Diagnostic } from '../common/diagnostic';
 import { FileDiagnostics } from '../common/diagnosticSink';
 import { FileEditAction } from '../common/editAction';
-import { EditableProgram, Extensions, ProgramView } from '../common/extensibility';
-import { FileSystem } from '../common/fileSystem';
+import { EditableProgram, ProgramView } from '../common/extensibility';
 import { LogTracker } from '../common/logTracker';
 import {
     combinePaths,
@@ -47,6 +46,7 @@ import { ImportResult, ImportType } from './importResult';
 import { getDocString } from './parseTreeUtils';
 import { Scope } from './scope';
 import { IPythonMode, SourceFile, SourceFileEditMode } from './sourceFile';
+import { SourceFileInfo } from './sourceFileInfo';
 import { createChainedByList, isUserCode, verifyNoCyclesInChainedFiles } from './sourceFileInfoUtils';
 import { SourceMapper } from './sourceMapper';
 import { Symbol } from './symbol';
@@ -56,7 +56,6 @@ import { createTypeEvaluatorWithTracker } from './typeEvaluatorWithTracker';
 import { PrintTypeFlags } from './typePrinter';
 import { TypeStubWriter } from './typeStubWriter';
 import { Type } from './types';
-import { SourceFileInfo } from './sourceFileInfo';
 
 const _maxImportDepth = 256;
 
@@ -84,7 +83,7 @@ export type PreCheckCallback = (parseResults: ParseResults, evaluator: TypeEvalu
 
 export interface ISourceFileFactory {
     createSourceFile(
-        fs: FileSystem,
+        serviceProvider: ServiceProvider,
         filePath: string,
         moduleName: string,
         isThirdPartyImport: boolean,
@@ -171,7 +170,6 @@ export class Program {
         readonly serviceProvider: ServiceProvider,
         logTracker?: LogTracker,
         private _disableChecker?: boolean,
-        cacheManager?: CacheManager,
         id?: string
     ) {
         this._console = serviceProvider.tryGet(ServiceKeys.console) || new StandardConsole();
@@ -180,7 +178,7 @@ export class Program {
         this._configOptions = initialConfigOptions;
         this._sourceFileFactory = serviceProvider.sourceFileFactory();
 
-        this._cacheManager = cacheManager ?? new CacheManager();
+        this._cacheManager = serviceProvider.tryGet(ServiceKeys.cacheManager) ?? new CacheManager();
         this._cacheManager.registerCacheOwner(this);
         this._createNewEvaluator();
 
@@ -274,6 +272,11 @@ export class Program {
             }
         }
 
+        if (mutatedFiles.length > 0) {
+            // All cache is invalid now.
+            this._createNewEvaluator();
+        }
+
         return edits;
     }
 
@@ -352,7 +355,8 @@ export class Program {
 
     addTrackedFile(filePath: string, isThirdPartyImport = false, isInPyTypedPackage = false): SourceFile {
         let sourceFileInfo = this.getSourceFileInfo(filePath);
-        const importName = this._getImportNameForFile(filePath);
+        const moduleImportInfo = this._getModuleImportInfoForFile(filePath);
+        const importName = moduleImportInfo.moduleName;
 
         if (sourceFileInfo) {
             // The module name may have changed based on updates to the
@@ -363,7 +367,7 @@ export class Program {
         }
 
         const sourceFile = this._sourceFileFactory.createSourceFile(
-            this.fileSystem,
+            this.serviceProvider,
             filePath,
             importName,
             isThirdPartyImport,
@@ -389,11 +393,11 @@ export class Program {
     setFileOpened(filePath: string, version: number | null, contents: string, options?: OpenFileOptions) {
         let sourceFileInfo = this.getSourceFileInfo(filePath);
         if (!sourceFileInfo) {
-            const importName = this._getImportNameForFile(filePath);
+            const moduleImportInfo = this._getModuleImportInfoForFile(filePath);
             const sourceFile = this._sourceFileFactory.createSourceFile(
-                this.fileSystem,
+                this.serviceProvider,
                 filePath,
-                importName,
+                moduleImportInfo.moduleName,
                 /* isThirdPartyImport */ false,
                 /* isInPyTypedPackage */ false,
                 this._editModeTracker,
@@ -716,7 +720,11 @@ export class Program {
     }
 
     getParseResults(filePath: string): ParseResults | undefined {
-        return this.getBoundSourceFile(filePath)?.getParseResults();
+        return this.getBoundSourceFileInfo(
+            filePath,
+            /* content */ undefined,
+            /* force */ true
+        )?.sourceFile.getParseResults();
     }
 
     handleMemoryHighUsage() {
@@ -992,7 +1000,8 @@ export class Program {
         this._createNewEvaluator();
         this._discardCachedParseResults();
         this._parsedFileCount = 0;
-        Extensions.getProgramExtensions(this.rootPath).forEach((e) => (e.clearCache ? e.clearCache() : null));
+
+        this.serviceProvider.tryGet(ServiceKeys.stateMutationListeners)?.forEach((l) => l.clearCache?.());
     }
 
     private _handleMemoryHighUsage() {
@@ -1428,11 +1437,11 @@ export class Program {
                 // of the program.
                 let importedFileInfo = this.getSourceFileInfo(importInfo.path);
                 if (!importedFileInfo) {
-                    const importName = this._getImportNameForFile(importInfo.path);
+                    const moduleImportInfo = this._getModuleImportInfoForFile(importInfo.path);
                     const sourceFile = new SourceFile(
-                        this.fileSystem,
+                        this.serviceProvider,
                         importInfo.path,
-                        importName,
+                        moduleImportInfo.moduleName,
                         importInfo.isThirdPartyImport,
                         importInfo.isPyTypedPresent,
                         this._editModeTracker,
@@ -1472,16 +1481,6 @@ export class Program {
         if (builtinsImport && builtinsImport.isImportFound) {
             const resolvedBuiltinsPath = builtinsImport.resolvedPaths[builtinsImport.resolvedPaths.length - 1];
             sourceFileInfo.builtinsImport = this.getSourceFileInfo(resolvedBuiltinsPath);
-        }
-
-        // Resolve the ipython display import for the file. This needs to be
-        // analyzed before the file can be analyzed.
-        sourceFileInfo.ipythonDisplayImport = undefined;
-        const ipythonDisplayImport = sourceFileInfo.sourceFile.getIPythonDisplayImport();
-        if (ipythonDisplayImport && ipythonDisplayImport.isImportFound) {
-            const resolvedIPythonDisplayPath =
-                ipythonDisplayImport.resolvedPaths[ipythonDisplayImport.resolvedPaths.length - 1];
-            sourceFileInfo.ipythonDisplayImport = this.getSourceFileInfo(resolvedIPythonDisplayPath);
         }
 
         return filesAdded;
@@ -1528,7 +1527,7 @@ export class Program {
         return flags;
     }
 
-    private _getImportNameForFile(filePath: string) {
+    private _getModuleImportInfoForFile(filePath: string) {
         // We allow illegal module names (e.g. names that include "-" in them)
         // because we want a unique name for each module even if it cannot be
         // imported through an "import" statement. It's important to have a
@@ -1538,9 +1537,11 @@ export class Program {
         const moduleNameAndType = this._importResolver.getModuleNameForImport(
             filePath,
             this._configOptions.getDefaultExecEnvironment(),
-            /* allowIllegalModuleName */ true
+            /* allowIllegalModuleName */ true,
+            /* detectPyTyped */ false
         );
-        return moduleNameAndType.moduleName;
+
+        return moduleNameAndType;
     }
 
     // A "shadowed" file is a python source file that has been added to the program because
@@ -1566,11 +1567,11 @@ export class Program {
     }
 
     private _createInterimFileInfo(filePath: string) {
-        const importName = this._getImportNameForFile(filePath);
+        const moduleImportInfo = this._getModuleImportInfoForFile(filePath);
         const sourceFile = this._sourceFileFactory.createSourceFile(
-            this.fileSystem,
+            this.serviceProvider,
             filePath,
-            importName,
+            moduleImportInfo.moduleName,
             /* isThirdPartyImport */ false,
             /* isInPyTypedPackage */ false,
             this._editModeTracker,
@@ -1646,7 +1647,7 @@ export class Program {
     }
 
     private _getImplicitImports(file: SourceFileInfo) {
-        // If file is not parsed, then chainedSourceFile, ipythonDisplayImport,
+        // If file is not parsed, then chainedSourceFile,
         // builtinsImport might not exist or incorrect.
         // They will be added when _parseFile is called and _updateSourceFileImports ran.
         if (file.builtinsImport === file) {
@@ -1661,7 +1662,7 @@ export class Program {
             return input;
         };
 
-        return tryReturn(file.chainedSourceFile) ?? tryReturn(file.ipythonDisplayImport) ?? file.builtinsImport;
+        return tryReturn(file.chainedSourceFile) ?? file.builtinsImport;
     }
 
     private _bindImplicitImports(fileToAnalyze: SourceFileInfo, skipFileNeededCheck?: boolean) {
@@ -1740,10 +1741,9 @@ export class Program {
             }
 
             // If it is not builtin module itself, we need to parse and bind
-            // the ipython display import if required. Otherwise, get builtin module.
+            // the builtin module.
             builtinsScope =
                 getScopeIfAvailable(fileToAnalyze.chainedSourceFile) ??
-                getScopeIfAvailable(fileToAnalyze.ipythonDisplayImport) ??
                 getScopeIfAvailable(fileToAnalyze.builtinsImport);
         }
 

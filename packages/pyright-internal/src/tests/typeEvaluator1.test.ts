@@ -459,6 +459,12 @@ test('TypeNarrowingIsinstance18', () => {
     TestUtils.validateResults(analysisResults, 0);
 });
 
+test('TypeNarrowingIsinstance19', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typeNarrowingIsinstance19.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
 test('TypeNarrowingTupleLength1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typeNarrowingTupleLength1.py']);
 
@@ -1101,7 +1107,7 @@ test('Property10', () => {
 test('Property11', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['property11.py']);
 
-    TestUtils.validateResults(analysisResults, 1);
+    TestUtils.validateResults(analysisResults, 2);
 });
 
 test('Property12', () => {
@@ -1275,7 +1281,7 @@ test('Tuple6', () => {
 test('Tuple7', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['tuple7.py']);
 
-    TestUtils.validateResults(analysisResults, 1);
+    TestUtils.validateResults(analysisResults, 2);
 });
 
 test('Tuple8', () => {
@@ -1589,7 +1595,7 @@ test('PseudoGeneric3', () => {
 test('LiteralString1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['literalString1.py']);
 
-    TestUtils.validateResults(analysisResults, 8);
+    TestUtils.validateResults(analysisResults, 10);
 });
 
 test('LiteralString2', () => {

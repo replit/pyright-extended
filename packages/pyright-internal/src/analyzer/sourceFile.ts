@@ -17,18 +17,19 @@ import { assert } from '../common/debug';
 import { Diagnostic, DiagnosticCategory, TaskListToken, convertLevelToCategory } from '../common/diagnostic';
 import { DiagnosticRule } from '../common/diagnosticRules';
 import { DiagnosticSink, TextRangeDiagnosticSink } from '../common/diagnosticSink';
-import { Extensions } from '../common/extensibility';
+import { ServiceProvider } from '../common/extensibility';
 import { FileSystem } from '../common/fileSystem';
 import { LogTracker, getPathForLogging } from '../common/logTracker';
 import { getFileName, normalizeSlashes, stripFileExtension } from '../common/pathUtils';
 import { convertOffsetsToRange, convertTextRangeToRange } from '../common/positionUtils';
+import { ServiceKeys } from '../common/serviceProviderExtensions';
 import * as StringUtils from '../common/stringUtils';
 import { Range, TextRange, getEmptyRange } from '../common/textRange';
 import { TextRangeCollection } from '../common/textRangeCollection';
 import { Duration, timingStats } from '../common/timing';
 import { Localizer } from '../localization/localize';
 import { ModuleNode } from '../parser/parseNodes';
-import { IParser, ModuleImport, ParseOptions, Parser, ParseResults } from '../parser/parser';
+import { IParser, ModuleImport, ParseOptions, ParseResults, Parser } from '../parser/parser';
 import { IgnoreComment } from '../parser/tokenizer';
 import { Token } from '../parser/tokenizerTypes';
 import { AnalyzerFileInfo, ImportLookup } from './analyzerFileInfo';
@@ -57,7 +58,6 @@ const _maxSourceFileSize = 50 * 1024 * 1024;
 interface ResolveImportResult {
     imports: ImportResult[];
     builtinsImportResult?: ImportResult | undefined;
-    ipythonDisplayImportResult?: ImportResult | undefined;
 }
 
 // Indicates whether IPython syntax is supported and if so, what
@@ -134,8 +134,6 @@ class WriteableData {
     // Information about implicit and explicit imports from this file.
     imports: ImportResult[] | undefined;
     builtinsImport: ImportResult | undefined;
-    ipythonDisplayImport: ImportResult | undefined;
-
     // True if the file appears to have been deleted.
     isFileDeleted = false;
 }
@@ -176,6 +174,10 @@ export class SourceFile {
     // special-case handling.
     private readonly _isTypingExtensionsStubFile: boolean;
 
+    // True if the file is the "_typeshed.pyi" file, which needs special-
+    // case handling.
+    private readonly _isTypeshedStubFile: boolean;
+
     // True if the file one of the other built-in stub files
     // that require special-case handling: "collections.pyi",
     // "dataclasses.pyi", "abc.pyi", "asyncio/coroutines.pyi".
@@ -199,7 +201,7 @@ export class SourceFile {
     readonly fileSystem: FileSystem;
 
     constructor(
-        fs: FileSystem,
+        readonly serviceProvider: ServiceProvider,
         filePath: string,
         moduleName: string,
         isThirdPartyImport: boolean,
@@ -210,7 +212,7 @@ export class SourceFile {
         realFilePath?: string,
         ipythonMode?: IPythonMode
     ) {
-        this.fileSystem = fs;
+        this.fileSystem = serviceProvider.get(ServiceKeys.fs);
         this._console = console || new StandardConsole();
         this._editMode = editMode;
         this._filePath = filePath;
@@ -224,6 +226,8 @@ export class SourceFile {
             this._isStubFile &&
             (this._filePath.endsWith(normalizeSlashes('stdlib/typing.pyi')) || fileName === 'typing_extensions.pyi');
         this._isTypingExtensionsStubFile = this._isStubFile && fileName === 'typing_extensions.pyi';
+        this._isTypeshedStubFile =
+            this._isStubFile && this._filePath.endsWith(normalizeSlashes('stdlib/_typeshed/__init__.pyi'));
 
         this._isBuiltInStubFile = false;
         if (this._isStubFile) {
@@ -304,10 +308,6 @@ export class SourceFile {
         return this._writableData.builtinsImport;
     }
 
-    getIPythonDisplayImport(): ImportResult | undefined {
-        return this._writableData.ipythonDisplayImport;
-    }
-
     getModuleSymbolTable(): SymbolTable | undefined {
         return this._writableData.moduleSymbolTable;
     }
@@ -322,6 +322,7 @@ export class SourceFile {
             const text = this._writableData.clientDocumentContents!;
             this._writableData = this._preEditData;
             this._preEditData = undefined;
+
             return text;
         }
 
@@ -347,13 +348,18 @@ export class SourceFile {
         // that of the previous contents.
         try {
             // Read the file's contents.
-            const fileContents = this.fileSystem.readFileSync(this._filePath, 'utf8');
+            if (this.fileSystem.existsSync(this._filePath)) {
+                const fileContents = this.fileSystem.readFileSync(this._filePath, 'utf8');
 
-            if (fileContents.length !== this._writableData.lastFileContentLength) {
-                return true;
-            }
+                if (fileContents.length !== this._writableData.lastFileContentLength) {
+                    return true;
+                }
 
-            if (StringUtils.hashString(fileContents) !== this._writableData.lastFileContentHash) {
+                if (StringUtils.hashString(fileContents) !== this._writableData.lastFileContentHash) {
+                    return true;
+                }
+            } else {
+                // No longer exists, so yes it has changed.
                 return true;
             }
         } catch (error) {
@@ -367,6 +373,8 @@ export class SourceFile {
     // in cases where memory is low. When info is needed, the file
     // will be re-parsed and rebound.
     dropParseAndBindInfo(): void {
+        this._fireFileDirtyEvent();
+
         this._writableData.parseResults = undefined;
         this._writableData.moduleSymbolTable = undefined;
         this._writableData.isBindingNeeded = true;
@@ -379,8 +387,7 @@ export class SourceFile {
         this._writableData.isBindingNeeded = true;
         this._writableData.moduleSymbolTable = undefined;
 
-        const filePath = this.getFilePath();
-        Extensions.getProgramExtensions(filePath).forEach((e) => (e.fileDirty ? e.fileDirty(filePath) : null));
+        this._fireFileDirtyEvent();
     }
 
     markReanalysisRequired(forceRebinding: boolean): void {
@@ -471,7 +478,7 @@ export class SourceFile {
     }
 
     prepareForClose() {
-        // Nothing to do currently.
+        this._fireFileDirtyEvent();
     }
 
     isFileDeleted() {
@@ -605,7 +612,6 @@ export class SourceFile {
 
                     this._writableData.imports = importResult.imports;
                     this._writableData.builtinsImport = importResult.builtinsImportResult;
-                    this._writableData.ipythonDisplayImport = importResult.ipythonDisplayImportResult;
 
                     this._writableData.parseDiagnostics = diagSink.fetchAndClear();
                 });
@@ -669,7 +675,6 @@ export class SourceFile {
                 };
                 this._writableData.imports = undefined;
                 this._writableData.builtinsImport = undefined;
-                this._writableData.ipythonDisplayImport = undefined;
 
                 const diagSink = this.createDiagnosticSink();
                 diagSink.addError(
@@ -911,7 +916,11 @@ export class SourceFile {
         // Filter the diagnostics based on "pyright: ignore" lines.
         if (this._writableData.pyrightIgnoreLines.size > 0) {
             diagList = diagList.filter((d) => {
-                if (d.category !== DiagnosticCategory.UnreachableCode && d.category !== DiagnosticCategory.Deprecated) {
+                if (
+                    d.category !== DiagnosticCategory.UnusedCode &&
+                    d.category !== DiagnosticCategory.UnreachableCode &&
+                    d.category !== DiagnosticCategory.Deprecated
+                ) {
                     for (let line = d.range.start.line; line <= d.range.end.line; line++) {
                         const pyrightIgnoreComment = this._writableData.pyrightIgnoreLines.get(line);
                         if (pyrightIgnoreComment) {
@@ -1250,6 +1259,7 @@ export class SourceFile {
             isStubFile: this._isStubFile,
             isTypingStubFile: this._isTypingStubFile,
             isTypingExtensionsStubFile: this._isTypingExtensionsStubFile,
+            isTypeshedStubFile: this._isTypeshedStubFile,
             isBuiltInStubFile: this._isBuiltInStubFile,
             isInPyTypedPackage: this._isThirdPartyPyTypedPresent,
             ipythonMode: this._ipythonMode,
@@ -1308,10 +1318,6 @@ export class SourceFile {
             builtinsImportResult = resolveAndAddIfNotSelf(['builtins']);
         }
 
-        const ipythonDisplayImportResult = this._ipythonMode
-            ? resolveAndAddIfNotSelf(['IPython', 'display'])
-            : undefined;
-
         for (const moduleImport of moduleImports) {
             const importResult = importResolver.resolveImport(this._filePath, execEnv, {
                 leadingDots: moduleImport.leadingDots,
@@ -1343,7 +1349,6 @@ export class SourceFile {
         return {
             imports,
             builtinsImportResult,
-            ipythonDisplayImportResult,
         };
     }
 
@@ -1373,5 +1378,18 @@ export class SourceFile {
         // Parse the token stream, building the abstract syntax tree.
         const parser = this.createParser();
         return parser.parseSourceFile(fileContents, parseOptions, diagSink);
+    }
+
+    private _fireFileDirtyEvent() {
+        this.serviceProvider.tryGet(ServiceKeys.stateMutationListeners)?.forEach((l) => {
+            try {
+                l.fileDirty?.(this._filePath);
+            } catch (ex: any) {
+                const console = this.serviceProvider.tryGet(ServiceKeys.console);
+                if (console) {
+                    console.error(`State mutation listener exceptoin: ${ex.message}`);
+                }
+            }
+        });
     }
 }

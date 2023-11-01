@@ -75,7 +75,7 @@ test('Assignment1', () => {
 test('Assignment2', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['assignment2.py']);
 
-    TestUtils.validateResults(analysisResults, 2);
+    TestUtils.validateResults(analysisResults, 3);
 });
 
 test('Assignment3', () => {
@@ -164,7 +164,7 @@ test('AugmentedAssignment3', () => {
 test('Super1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['super1.py']);
 
-    TestUtils.validateResults(analysisResults, 4);
+    TestUtils.validateResults(analysisResults, 5);
 });
 
 test('Super2', () => {
@@ -285,11 +285,11 @@ test('isInstance3', () => {
 
     configOptions.defaultPythonVersion = PythonVersion.V3_9;
     const analysisResults1 = TestUtils.typeAnalyzeSampleFiles(['isinstance3.py'], configOptions);
-    TestUtils.validateResults(analysisResults1, 1);
+    TestUtils.validateResults(analysisResults1, 2);
 
     configOptions.defaultPythonVersion = PythonVersion.V3_10;
     const analysisResults2 = TestUtils.typeAnalyzeSampleFiles(['isinstance3.py'], configOptions);
-    TestUtils.validateResults(analysisResults2, 1);
+    TestUtils.validateResults(analysisResults2, 2);
 });
 
 test('isInstance4', () => {
@@ -473,7 +473,10 @@ test('ConstrainedTypeVar14', () => {
 });
 
 test('ConstrainedTypeVar15', () => {
-    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['constrainedTypeVar15.py']);
+    const configOptions = new ConfigOptions('.');
+    configOptions.diagnosticRuleSet.disableBytesTypePromotions = true;
+
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['constrainedTypeVar15.py'], configOptions);
 
     TestUtils.validateResults(analysisResults, 0);
 });
@@ -673,6 +676,12 @@ test('Solver28', () => {
 
 test('Solver29', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['solver29.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('Solver30', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['solver30.py']);
 
     TestUtils.validateResults(analysisResults, 0);
 });
@@ -1064,7 +1073,7 @@ test('Protocol2', () => {
 test('Protocol3', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['protocol3.py']);
 
-    TestUtils.validateResults(analysisResults, 4);
+    TestUtils.validateResults(analysisResults, 8);
 });
 
 test('Protocol4', () => {
@@ -1317,6 +1326,24 @@ test('Protocol44', () => {
     TestUtils.validateResults(analysisResults, 0);
 });
 
+test('Protocol45', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['protocol45.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('Protocol46', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['protocol46.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('Protocol47', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['protocol47.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
 test('TypedDict1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typedDict1.py']);
 
@@ -1344,7 +1371,7 @@ test('TypedDict4', () => {
 test('TypedDict5', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typedDict5.py']);
 
-    TestUtils.validateResults(analysisResults, 3);
+    TestUtils.validateResults(analysisResults, 4);
 });
 
 test('TypedDict6', () => {
@@ -1386,7 +1413,7 @@ test('TypedDict11', () => {
 test('TypedDict12', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typedDict12.py']);
 
-    TestUtils.validateResults(analysisResults, 6);
+    TestUtils.validateResults(analysisResults, 7);
 });
 
 test('TypedDict13', () => {
@@ -1452,7 +1479,7 @@ test('TypedDict22', () => {
 test('TypedDict23', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['typedDict23.py']);
 
-    TestUtils.validateResults(analysisResults, 0);
+    TestUtils.validateResults(analysisResults, 2);
 });
 
 test('TypedDict24', () => {

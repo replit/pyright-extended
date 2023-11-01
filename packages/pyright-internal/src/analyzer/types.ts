@@ -24,9 +24,6 @@ export const enum TypeCategory {
     // Type can be anything.
     Any,
 
-    // Special "None" type defined in Python.
-    None,
-
     // Used in type narrowing to indicate that all possible
     // subtypes in a union have been eliminated, and execution
     // should never get to this point.
@@ -46,7 +43,7 @@ export const enum TypeCategory {
     // Module instance.
     Module,
 
-    // Composite type (e.g. Number OR String OR None).
+    // Composite type (e.g. Number OR String).
     Union,
 
     // Type variable (defined with TypeVar)
@@ -74,7 +71,6 @@ export type UnionableType =
     | UnboundType
     | UnknownType
     | AnyType
-    | NoneType
     | FunctionType
     | OverloadedFunctionType
     | ClassType
@@ -115,6 +111,7 @@ export type InheritanceChain = (ClassType | UnknownType)[];
 export interface TypeSameOptions {
     ignorePseudoGeneric?: boolean;
     ignoreTypeFlags?: boolean;
+    typeFlagsToHonor?: TypeFlags;
     ignoreTypedDictNarrowEntries?: boolean;
     treatAnySameAsUnknown?: boolean;
 }
@@ -477,10 +474,6 @@ export const enum ClassTypeFlags {
     // the dictionary values can be omitted.
     CanOmitDictValues = 1 << 8,
 
-    // Used in conjunction with TypedDictClass, indicates that
-    // the dictionary values are all readonly.
-    DictValuesReadOnly = 1 << 9,
-
     // The class derives from a class that has the ABCMeta
     // metaclass. Such classes are allowed to contain
     // @abstractmethod decorators.
@@ -662,6 +655,11 @@ export interface ClassType extends TypeBase {
     // of abstract or protocol classes.
     includeSubclasses?: boolean;
 
+    // This class type represents the class and any auto-promotion
+    // types that PEP 484 indicates should be treated as subclasses
+    // when the type appears within a type annotation.
+    includePromotions?: boolean;
+
     // Some types can be further constrained to have
     // literal types (e.g. true or 'string' or 3).
     literalValue?: LiteralValue | undefined;
@@ -677,7 +675,9 @@ export interface ClassType extends TypeBase {
     typedDictNarrowedEntries?: Map<string, TypedDictEntry> | undefined;
 
     // Indicates that the typed dict class should be considered "partial",
-    // i.e. all of its entries are effectively NotRequired.
+    // i.e. all of its entries are effectively NotRequired and only
+    // writable entries are considered present, and they are marked read-only.
+    // This is used for the TypedDict "update" method.
     isTypedDictPartial?: boolean;
 
     // Indicates whether the class is an asymmetric descriptor
@@ -767,7 +767,7 @@ export namespace ClassType {
     ): ClassType {
         const newClassType = TypeBase.cloneType(classType);
 
-        newClassType.typeArguments = typeArguments;
+        newClassType.typeArguments = typeArguments?.length === 0 ? undefined : typeArguments;
         newClassType.isTypeArgumentExplicit = isTypeArgumentExplicit;
 
         if (includeSubclasses) {
@@ -784,6 +784,16 @@ export namespace ClassType {
             newClassType.isEmptyContainer = isEmptyContainer;
         }
 
+        return newClassType;
+    }
+
+    export function cloneIncludeSubclasses(classType: ClassType) {
+        if (classType.includeSubclasses) {
+            return classType;
+        }
+
+        const newClassType = TypeBase.cloneType(classType);
+        newClassType.includeSubclasses = true;
         return newClassType;
     }
 
@@ -819,6 +829,16 @@ export namespace ClassType {
         newClassType.details = { ...newClassType.details };
         newClassType.details.typeParameters = typeParams;
         newClassType.details.requiresVarianceInference = false;
+        return newClassType;
+    }
+
+    export function cloneRemoveTypePromotions(classType: ClassType): ClassType {
+        if (!classType.includePromotions) {
+            return classType;
+        }
+
+        const newClassType = TypeBase.cloneType(classType);
+        delete newClassType.includePromotions;
         return newClassType;
     }
 
@@ -1016,10 +1036,6 @@ export namespace ClassType {
         return !!(classType.details.flags & ClassTypeFlags.CanOmitDictValues);
     }
 
-    export function isDictValuesReadOnly(classType: ClassType) {
-        return !!(classType.details.flags & ClassTypeFlags.DictValuesReadOnly);
-    }
-
     export function isEnumClass(classType: ClassType) {
         return !!(classType.details.flags & ClassTypeFlags.EnumClass);
     }
@@ -1100,6 +1116,10 @@ export namespace ClassType {
             return true;
         }
         recursionCount++;
+
+        if (!classType.isTypedDictPartial !== !type2.isTypedDictPartial) {
+            return false;
+        }
 
         // If the class details match, it's definitely the same class.
         if (classType.details === type2.details) {
@@ -1439,6 +1459,11 @@ export interface FunctionType extends TypeBase {
     // for that call and any other signatures that were passed as
     // arguments to it.
     trackedSignatures?: SignatureWithOffsets[];
+
+    // If this function is created with a "Callable" annotation with
+    // type arguments? This allows us to detect and report an error
+    // when this is used in an isinstance call.
+    isCallableWithTypeArgs?: boolean;
 }
 
 export namespace FunctionType {
@@ -1833,6 +1858,10 @@ export namespace FunctionType {
             newFunction.details.paramSpec = paramSpec;
         }
 
+        if (type.inferredReturnType) {
+            newFunction.inferredReturnType = type.inferredReturnType;
+        }
+
         return newFunction;
     }
 
@@ -2039,30 +2068,6 @@ export namespace OverloadedFunctionType {
     }
 }
 
-export interface NoneType extends TypeBase {
-    category: TypeCategory.None;
-}
-
-export namespace NoneType {
-    const _noneInstance: NoneType = {
-        category: TypeCategory.None,
-        flags: TypeFlags.Instance,
-    };
-
-    const _noneType: NoneType = {
-        category: TypeCategory.None,
-        flags: TypeFlags.Instantiable,
-    };
-
-    export function createInstance() {
-        return _noneInstance;
-    }
-
-    export function createType() {
-        return _noneType;
-    }
-}
-
 export interface NeverType extends TypeBase {
     category: TypeCategory.Never;
     isNoReturn: boolean;
@@ -2096,6 +2101,12 @@ export interface AnyType extends TypeBase {
 }
 
 export namespace AnyType {
+    const _anyInstanceSpecialForm: AnyType = {
+        category: TypeCategory.Any,
+        isEllipsis: false,
+        flags: TypeFlags.Instance | TypeFlags.Instantiable | TypeFlags.SpecialForm,
+    };
+
     const _anyInstance: AnyType = {
         category: TypeCategory.Any,
         isEllipsis: false,
@@ -2110,6 +2121,22 @@ export namespace AnyType {
 
     export function create(isEllipsis = false) {
         return isEllipsis ? _ellipsisInstance : _anyInstance;
+    }
+
+    export function createSpecialForm() {
+        return _anyInstanceSpecialForm;
+    }
+}
+
+export namespace AnyType {
+    export function convertToInstance(type: AnyType): AnyType {
+        // Remove the "special form" flag if it's set. Otherwise
+        // simply return the existing type.
+        if (TypeBase.isSpecialForm(type)) {
+            return AnyType.create();
+        }
+
+        return type;
     }
 }
 
@@ -2334,6 +2361,7 @@ export interface TypeVarDetails {
     constraints: Type[];
     boundType?: Type | undefined;
     defaultType?: Type | undefined;
+    runtimeClass?: ClassType | undefined;
 
     isParamSpec: boolean;
     isVariadic: boolean;
@@ -2410,8 +2438,8 @@ export namespace TypeVarType {
         return create(name, /* isParamSpec */ false, TypeFlags.Instance);
     }
 
-    export function createInstantiable(name: string, isParamSpec = false) {
-        return create(name, isParamSpec, TypeFlags.Instantiable);
+    export function createInstantiable(name: string, isParamSpec = false, runtimeClass?: ClassType) {
+        return create(name, isParamSpec, TypeFlags.Instantiable, runtimeClass);
     }
 
     export function cloneAsInstance(type: TypeVarType): TypeVarType {
@@ -2543,7 +2571,7 @@ export namespace TypeVarType {
         return `${name}.${scopeId}`;
     }
 
-    function create(name: string, isParamSpec: boolean, typeFlags: TypeFlags): TypeVarType {
+    function create(name: string, isParamSpec: boolean, typeFlags: TypeFlags, runtimeClass?: ClassType): TypeVarType {
         const newTypeVarType: TypeVarType = {
             category: TypeCategory.TypeVar,
             details: {
@@ -2553,6 +2581,7 @@ export namespace TypeVarType {
                 isParamSpec,
                 isVariadic: false,
                 isSynthesized: false,
+                runtimeClass,
             },
             flags: typeFlags,
         };
@@ -2600,14 +2629,6 @@ export namespace TypeVarType {
 
 export function isNever(type: Type): type is NeverType {
     return type.category === TypeCategory.Never;
-}
-
-export function isNoneInstance(type: Type): type is NoneType {
-    return type.category === TypeCategory.None && TypeBase.isInstance(type);
-}
-
-export function isNoneTypeClass(type: Type): type is NoneType {
-    return type.category === TypeCategory.None && TypeBase.isInstantiable(type);
 }
 
 export function isAny(type: Type): type is AnyType {
@@ -2746,9 +2767,18 @@ export function isTypeSame(type1: Type, type2: Type, options: TypeSameOptions = 
     }
 
     if (!options.ignoreTypeFlags) {
-        // The Annotated flag should never be considered for type compatibility.
-        const type1Flags = type1.flags & ~TypeFlags.Annotated;
-        const type2Flags = type2.flags & ~TypeFlags.Annotated;
+        let type1Flags = type1.flags;
+        let type2Flags = type2.flags;
+
+        // Mask out the flags that we don't care about.
+        if (options.typeFlagsToHonor !== undefined) {
+            type1Flags &= options.typeFlagsToHonor;
+            type2Flags &= options.typeFlagsToHonor;
+        } else {
+            // By default, we don't care about the Annotated flag.
+            type1Flags &= ~TypeFlags.Annotated;
+            type2Flags &= ~TypeFlags.Annotated;
+        }
 
         if (type1Flags !== type2Flags) {
             return false;
@@ -2816,6 +2846,10 @@ export function isTypeSame(type1: Type, type2: Type, options: TypeSameOptions = 
             }
 
             if (!ClassType.isLiteralValueSame(type1, classType2)) {
+                return false;
+            }
+
+            if (!type1.isTypedDictPartial !== !classType2.isTypedDictPartial) {
                 return false;
             }
 
@@ -3067,19 +3101,6 @@ export function removeUnknownFromUnion(type: Type): Type {
     return removeFromUnion(type, (t: Type) => isUnknown(t));
 }
 
-export function removeIncompleteUnknownFromUnion(type: Type): Type {
-    return removeFromUnion(type, (t: Type) => isUnknown(t) && t.isIncomplete);
-}
-
-export function cleanIncompleteUnknown(type: Type): Type {
-    const typeWithoutUnknown = removeIncompleteUnknownFromUnion(type);
-    if (!isNever(typeWithoutUnknown)) {
-        return typeWithoutUnknown;
-    }
-
-    return type;
-}
-
 // If the type is a union, remove an "unbound" type from the union,
 // returning only the known types.
 export function removeUnbound(type: Type): Type {
@@ -3092,12 +3113,6 @@ export function removeUnbound(type: Type): Type {
     }
 
     return type;
-}
-
-// If the type is a union, remove an "None" type from the union,
-// returning only the known types.
-export function removeNoneFromUnion(type: Type): Type {
-    return removeFromUnion(type, (t: Type) => isNoneInstance(t));
 }
 
 export function removeFromUnion(type: Type, removeFilter: (type: Type) => boolean) {

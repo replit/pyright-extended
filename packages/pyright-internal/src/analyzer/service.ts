@@ -19,7 +19,7 @@ import { ConfigOptions, matchFileSpecs } from '../common/configOptions';
 import { ConsoleInterface, LogLevel, StandardConsole, log } from '../common/console';
 import { Diagnostic } from '../common/diagnostic';
 import { FileEditAction } from '../common/editAction';
-import { EditableProgram, Extensions, ProgramMutator, ProgramView } from '../common/extensibility';
+import { EditableProgram, ProgramView } from '../common/extensibility';
 import { FileSystem } from '../common/fileSystem';
 import { FileWatcher, FileWatcherEventType, ignoredWatchEventFunction } from '../common/fileWatcher';
 import { Host, HostFactory, NoAccessHost } from '../common/host';
@@ -57,7 +57,6 @@ import {
     BackgroundAnalysisProgramFactory,
     InvalidatedReason,
 } from './backgroundAnalysisProgram';
-import { CacheManager } from './cacheManager';
 import {
     ImportResolver,
     ImportResolverFactory,
@@ -88,7 +87,6 @@ export interface AnalyzerServiceOptions {
     backgroundAnalysisProgramFactory?: BackgroundAnalysisProgramFactory;
     cancellationProvider?: CancellationProvider;
     libraryReanalysisTimeProvider?: () => number;
-    cacheManager?: CacheManager;
     serviceId?: string;
     skipScanningUserFiles?: boolean;
     fileSystem?: FileSystem;
@@ -102,10 +100,12 @@ export function getNextServiceId(name: string) {
 }
 
 export class AnalyzerService {
-    private _instanceName: string;
-    private _executionRootPath: string;
-    private _options: AnalyzerServiceOptions;
+    private readonly _instanceName: string;
+    private readonly _options: AnalyzerServiceOptions;
+    private readonly _backgroundAnalysisProgram: BackgroundAnalysisProgram;
+    private readonly _serviceProvider: ServiceProvider;
 
+    private _executionRootPath: string;
     private _typeStubTargetPath: string | undefined;
     private _typeStubTargetIsSingleFile = false;
     private _sourceFileWatcher: FileWatcher | undefined;
@@ -120,11 +120,10 @@ export class AnalyzerService {
     private _analyzeTimer: any;
     private _requireTrackedFileUpdate = true;
     private _lastUserInteractionTime = Date.now();
-    private _backgroundAnalysisProgram: BackgroundAnalysisProgram;
     private _backgroundAnalysisCancellationSource: AbstractCancellationTokenSource | undefined;
+
     private _disposed = false;
     private _pendingLibraryChanges: RefreshOptions = { changesOnly: true };
-    private _serviceProvider = new ServiceProvider();
 
     constructor(instanceName: string, serviceProvider: ServiceProvider, options: AnalyzerServiceOptions) {
         this._instanceName = instanceName;
@@ -135,10 +134,8 @@ export class AnalyzerService {
         this._options.serviceId = this._options.serviceId ?? getNextServiceId(instanceName);
         this._options.console = options.console || new StandardConsole();
 
-        // Add the services from the passed in service provider to the local service provider.
-        [...serviceProvider.items].forEach((item) => {
-            this._serviceProvider.add(item[0], item[1]);
-        });
+        // Create local copy of the given service provider.
+        this._serviceProvider = serviceProvider.clone();
 
         // Override the console and the file system if they were explicitly provided.
         if (this._options.console) {
@@ -167,8 +164,7 @@ export class AnalyzerService {
                       this._options.configOptions,
                       importResolver,
                       this._options.backgroundAnalysis,
-                      this._options.maxAnalysisTime,
-                      this._options.cacheManager
+                      this._options.maxAnalysisTime
                   )
                 : new BackgroundAnalysisProgram(
                       this._options.serviceId,
@@ -177,20 +173,8 @@ export class AnalyzerService {
                       importResolver,
                       this._options.backgroundAnalysis,
                       this._options.maxAnalysisTime,
-                      /* disableChecker */ undefined,
-                      this._options.cacheManager
+                      /* disableChecker */ undefined
                   );
-
-        // Create the extensions tied to this program.
-
-        // Make a wrapper around the program for mutation situations. It
-        // will forward the requests to the background thread too.
-        const mutator: ProgramMutator = {
-            addInterimFile: this.addInterimFile.bind(this),
-            updateOpenFileContents: this.updateOpenFileContents.bind(this),
-            setFileOpened: this.setFileOpened.bind(this),
-        };
-        Extensions.createProgramExtensions(this._program, mutator);
     }
 
     get fs() {
@@ -275,7 +259,6 @@ export class AnalyzerService {
             // Make sure we dispose program, otherwise, entire program
             // will leak.
             this._backgroundAnalysisProgram.dispose();
-            Extensions.destroyProgramExtensions(this._program.id);
         }
 
         this._disposed = true;
@@ -389,7 +372,7 @@ export class AnalyzerService {
     }
 
     getParseResult(path: string) {
-        return this._program.getBoundSourceFile(path)?.getParseResults();
+        return this._program.getParseResults(path);
     }
 
     getSourceFile(path: string) {
@@ -425,6 +408,10 @@ export class AnalyzerService {
 
     printDependencies(verbose: boolean) {
         this._program.printDependencies(this._executionRootPath, verbose);
+    }
+
+    analyzeFile(filePath: string, token: CancellationToken): Promise<boolean> {
+        return this._backgroundAnalysisProgram.analyzeFile(filePath, token);
     }
 
     getDiagnosticsForRange(filePath: string, range: Range, token: CancellationToken): Promise<Diagnostic[]> {
@@ -617,9 +604,11 @@ export class AnalyzerService {
             );
             (configOptions.pythonPath = commandLineOptions.pythonPath), this.fs;
         }
+
         if (commandLineOptions.pythonEnvironmentName) {
             this._console.info(
-                `Setting pythonPath for service "${this._instanceName}": ` + `"${commandLineOptions.pythonPath}"`
+                `Setting environmentName for service "${this._instanceName}": ` +
+                    `"${commandLineOptions.pythonEnvironmentName}"`
             );
             configOptions.pythonEnvironmentName = commandLineOptions.pythonEnvironmentName;
         }
@@ -636,19 +625,19 @@ export class AnalyzerService {
 
         if (commandLineOptions.fileSpecs.length > 0) {
             commandLineOptions.fileSpecs.forEach((fileSpec) => {
-                configOptions.include.push(getFileSpec(this.fs, projectRoot, fileSpec));
+                configOptions.include.push(getFileSpec(this.serviceProvider, projectRoot, fileSpec));
             });
         }
 
         if (commandLineOptions.excludeFileSpecs.length > 0) {
             commandLineOptions.excludeFileSpecs.forEach((fileSpec) => {
-                configOptions.exclude.push(getFileSpec(this.fs, projectRoot, fileSpec));
+                configOptions.exclude.push(getFileSpec(this.serviceProvider, projectRoot, fileSpec));
             });
         }
 
         if (commandLineOptions.ignoreFileSpecs.length > 0) {
             commandLineOptions.ignoreFileSpecs.forEach((fileSpec) => {
-                configOptions.ignore.push(getFileSpec(this.fs, projectRoot, fileSpec));
+                configOptions.ignore.push(getFileSpec(this.serviceProvider, projectRoot, fileSpec));
             });
         }
 
@@ -657,13 +646,15 @@ export class AnalyzerService {
                 // If no config file was found and there are no explicit include
                 // paths specified, assume the caller wants to include all source
                 // files under the execution root path.
-                configOptions.include.push(getFileSpec(this.fs, commandLineOptions.executionRoot, '.'));
+                configOptions.include.push(getFileSpec(this.serviceProvider, commandLineOptions.executionRoot, '.'));
             }
 
             if (commandLineOptions.excludeFileSpecs.length === 0) {
                 // Add a few common excludes to avoid long scan times.
                 defaultExcludes.forEach((exclude) => {
-                    configOptions.exclude.push(getFileSpec(this.fs, commandLineOptions.executionRoot, exclude));
+                    configOptions.exclude.push(
+                        getFileSpec(this.serviceProvider, commandLineOptions.executionRoot, exclude)
+                    );
                 });
             }
         }
@@ -684,11 +675,9 @@ export class AnalyzerService {
             configOptions.initializeFromJson(
                 configJsonObj,
                 this._typeCheckingMode,
-                this._console,
-                this.fs,
+                this.serviceProvider,
                 host,
-                commandLineOptions.diagnosticSeverityOverrides,
-                commandLineOptions.fileSpecs.length > 0
+                commandLineOptions.diagnosticSeverityOverrides
             );
 
             const configFileDir = getDirectoryPath(this._configFilePath!);
@@ -697,14 +686,14 @@ export class AnalyzerService {
             // the project should be included.
             if (configOptions.include.length === 0) {
                 this._console.info(`No include entries specified; assuming ${configFileDir}`);
-                configOptions.include.push(getFileSpec(this.fs, configFileDir, '.'));
+                configOptions.include.push(getFileSpec(this.serviceProvider, configFileDir, '.'));
             }
 
             // If there was no explicit set of excludes, add a few common ones to avoid long scan times.
             if (configOptions.exclude.length === 0) {
                 defaultExcludes.forEach((exclude) => {
                     this._console.info(`Auto-excluding ${exclude}`);
-                    configOptions.exclude.push(getFileSpec(this.fs, configFileDir, exclude));
+                    configOptions.exclude.push(getFileSpec(this.serviceProvider, configFileDir, exclude));
                 });
 
                 if (configOptions.autoExcludeVenv === undefined) {
@@ -768,7 +757,9 @@ export class AnalyzerService {
             this._console.info(`Excluding typeshed stdlib stubs according to VERSIONS file:`);
             excludeList.forEach((exclude) => {
                 this._console.info(`    ${exclude}`);
-                configOptions.exclude.push(getFileSpec(this.fs, commandLineOptions.executionRoot, exclude));
+                configOptions.exclude.push(
+                    getFileSpec(this.serviceProvider, commandLineOptions.executionRoot, exclude)
+                );
             });
         }
 
@@ -1163,7 +1154,9 @@ export class AnalyzerService {
                 if (envMarkers.some((f) => this.fs.existsSync(combinePaths(absolutePath, ...f)))) {
                     // Save auto exclude paths in the configOptions once we found them.
                     if (!FileSpec.isInPath(absolutePath, exclude)) {
-                        exclude.push(getFileSpec(this.fs, this._configOptions.projectRoot, `${absolutePath}/**`));
+                        exclude.push(
+                            getFileSpec(this.serviceProvider, this._configOptions.projectRoot, `${absolutePath}/**`)
+                        );
                     }
 
                     this._console.info(`Auto-excluding ${absolutePath}`);
@@ -1479,7 +1472,8 @@ export class AnalyzerService {
 
         // find the innermost matching search path
         let matchingSearchPath;
-        const ignoreCase = !isFileSystemCaseSensitive(this.fs);
+        const tempFile = this.serviceProvider.tryGet(ServiceKeys.tempFile);
+        const ignoreCase = !isFileSystemCaseSensitive(this.fs, tempFile);
         for (const libSearchPath of libSearchPaths) {
             if (
                 containsPath(libSearchPath, path, ignoreCase) &&

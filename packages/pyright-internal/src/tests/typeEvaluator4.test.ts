@@ -43,7 +43,7 @@ test('Required3', () => {
 
 test('Metaclass1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['metaclass1.py']);
-    TestUtils.validateResults(analysisResults, 2);
+    TestUtils.validateResults(analysisResults, 3);
 });
 
 test('Metaclass2', () => {
@@ -93,7 +93,7 @@ test('Metaclass10', () => {
 
 test('Metaclass11', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['metaclass11.py']);
-    TestUtils.validateResults(analysisResults, 1);
+    TestUtils.validateResults(analysisResults, 4);
 });
 
 test('AssignmentExpr1', () => {
@@ -311,7 +311,7 @@ test('Overload7', () => {
 
 test('Overload8', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['overload8.py']);
-    TestUtils.validateResults(analysisResults, 2);
+    TestUtils.validateResults(analysisResults, 4);
 });
 
 test('Overload10', () => {
@@ -326,7 +326,7 @@ test('Overload11', () => {
 
 test('Overload12', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['overload12.py']);
-    TestUtils.validateResults(analysisResults, 1);
+    TestUtils.validateResults(analysisResults, 2);
 });
 
 test('Overload13', () => {
@@ -341,7 +341,12 @@ test('Overload14', () => {
 
 test('Overload15', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['overload15.py']);
-    TestUtils.validateResults(analysisResults, 9, 1);
+    TestUtils.validateResults(analysisResults, 8, 1);
+});
+
+test('Overload16', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['overload16.py']);
+    TestUtils.validateResults(analysisResults, 2);
 });
 
 test('Final1', () => {
@@ -522,7 +527,7 @@ test('MemberAccess18', () => {
 
 test('MemberAccess19', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['memberAccess19.py']);
-    TestUtils.validateResults(analysisResults, 5);
+    TestUtils.validateResults(analysisResults, 10);
 });
 
 test('MemberAccess20', () => {
@@ -542,6 +547,11 @@ test('MemberAccess22', () => {
 
 test('MemberAccess23', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['memberAccess23.py']);
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('MemberAccess24', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['memberAccess24.py']);
     TestUtils.validateResults(analysisResults, 0);
 });
 
@@ -779,6 +789,7 @@ test('Generic3', () => {
 
 test('Unions1', () => {
     const configOptions = new ConfigOptions('.');
+    configOptions.diagnosticRuleSet.disableBytesTypePromotions = true;
 
     // Analyze with Python 3.9 settings. This will generate errors.
     configOptions.defaultPythonVersion = PythonVersion.V3_9;
@@ -881,7 +892,7 @@ test('ParamSpec8', () => {
 
 test('ParamSpec9', () => {
     const results = TestUtils.typeAnalyzeSampleFiles(['paramSpec9.py']);
-    TestUtils.validateResults(results, 13);
+    TestUtils.validateResults(results, 14);
 });
 
 test('ParamSpec10', () => {
@@ -1016,7 +1027,7 @@ test('ParamSpec35', () => {
 
 test('ParamSpec36', () => {
     const results = TestUtils.typeAnalyzeSampleFiles(['paramSpec36.py']);
-    TestUtils.validateResults(results, 2);
+    TestUtils.validateResults(results, 3);
 });
 
 test('ParamSpec37', () => {
@@ -1071,12 +1082,17 @@ test('ParamSpec46', () => {
 
 test('ParamSpec47', () => {
     const results = TestUtils.typeAnalyzeSampleFiles(['paramSpec47.py']);
-    TestUtils.validateResults(results, 2);
+    TestUtils.validateResults(results, 3);
 });
 
 test('ParamSpec48', () => {
     const results = TestUtils.typeAnalyzeSampleFiles(['paramSpec48.py']);
     TestUtils.validateResults(results, 0);
+});
+
+test('ParamSpec49', () => {
+    const results = TestUtils.typeAnalyzeSampleFiles(['paramSpec49.py']);
+    TestUtils.validateResults(results, 5);
 });
 
 test('ClassVar1', () => {
@@ -1280,4 +1296,10 @@ test('Del2', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['del2.py']);
 
     TestUtils.validateResults(analysisResults, 2);
+});
+
+test('Any1', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['any1.py']);
+
+    TestUtils.validateResults(analysisResults, 4);
 });

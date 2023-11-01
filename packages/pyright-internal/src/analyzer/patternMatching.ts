@@ -48,7 +48,6 @@ import {
     isClassInstance,
     isInstantiableClass,
     isNever,
-    isNoneInstance,
     isSameWithoutLiteralValue,
     isTypeSame,
     isUnknown,
@@ -68,6 +67,7 @@ import {
     getTypeVarScopeId,
     isLiteralType,
     isMetaclassInstance,
+    isNoneInstance,
     isPartlyUnknown,
     isTupleClass,
     isUnboundedTupleClass,
@@ -287,6 +287,11 @@ function narrowTypeBasedOnSequencePattern(
                 }
             }
         });
+
+        // If the pattern is an empty sequence, use the entry types.
+        if (pattern.entries.length === 0 && entry.entryTypes.length > 0) {
+            narrowedEntryTypes.push(combineTypes(entry.entryTypes));
+        }
 
         if (!isPositiveTest) {
             // If the positive case is a definite match, the negative case can
@@ -653,7 +658,15 @@ function narrowTypeBasedOnClassPattern(
     // If this is a class (but not a type alias that refers to a class),
     // specialize it with Unknown type arguments.
     if (isClass(exprType) && !exprType.typeAliasInfo) {
+        exprType = ClassType.cloneRemoveTypePromotions(exprType);
         exprType = specializeClassType(exprType);
+    }
+
+    // Are there any positional arguments? If so, try to get the mappings for
+    // these arguments by fetching the __match_args__ symbol from the class.
+    let positionalArgNames: string[] = [];
+    if (pattern.arguments.some((arg) => !arg.name) && isInstantiableClass(exprType)) {
+        positionalArgNames = getPositionalMatchArgNames(evaluator, exprType);
     }
 
     if (!isPositiveTest) {
@@ -676,7 +689,7 @@ function narrowTypeBasedOnClassPattern(
         const isPatternMetaclass = isMetaclassInstance(classInstance);
 
         return evaluator.mapSubtypesExpandTypeVars(
-            type,
+            evaluator.expandPromotionTypes(pattern, type),
             /* conditionFilter */ undefined,
             (subjectSubtypeExpanded, subjectSubtypeUnexpanded) => {
                 // Handle the case where the class pattern references type() or a subtype thereof
@@ -726,15 +739,6 @@ function narrowTypeBasedOnClassPattern(
                 if (!evaluator.assignType(subjectSubtypeExpanded, classInstance)) {
                     if (isClass(subjectSubtypeExpanded) && !ClassType.isFinal(subjectSubtypeExpanded)) {
                         return subjectSubtypeExpanded;
-                    }
-                }
-
-                // Are there any positional arguments? If so, try to get the mappings for
-                // these arguments by fetching the __match_args__ symbol from the class.
-                let positionalArgNames: string[] = [];
-                if (pattern.arguments.some((arg) => !arg.name)) {
-                    if (isClass(subjectSubtypeExpanded)) {
-                        positionalArgNames = getPositionalMatchArgNames(evaluator, subjectSubtypeExpanded);
                     }
                 }
 
@@ -910,7 +914,27 @@ function narrowTypeBasedOnClassPattern(
 // Some built-in classes are treated as special cases for the class pattern
 // if a positional argument is used.
 function isClassSpecialCaseForClassPattern(classType: ClassType) {
-    return classPatternSpecialCases.some((className) => classType.details.fullName === className);
+    if (classPatternSpecialCases.some((className) => classType.details.fullName === className)) {
+        return true;
+    }
+
+    // If the class supplies its own `__match_args__`, it's not a special case.
+    const matchArgsMemberInfo = lookUpClassMember(classType, '__match_args__');
+    if (matchArgsMemberInfo) {
+        return false;
+    }
+
+    // If the class derives from a built-in class, it is considered a special case.
+    for (const mroClass of classType.details.mro) {
+        if (
+            isClass(mroClass) &&
+            classPatternSpecialCases.some((className) => mroClass.details.fullName === className)
+        ) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 // Narrows the pattern provided for a class pattern argument.
@@ -1056,10 +1080,10 @@ function narrowTypeBasedOnValuePattern(
                         // Determine if assignment is supported for this combination of
                         // value subtype and matching subtype.
                         const returnType = evaluator.useSpeculativeMode(pattern.expression, () =>
-                            evaluator.getTypeOfMagicMethodReturn(
+                            evaluator.getTypeOfMagicMethodCall(
                                 valueSubtypeExpanded,
-                                [{ type: subjectSubtypeExpanded }],
                                 '__eq__',
+                                [{ type: subjectSubtypeExpanded }],
                                 pattern.expression,
                                 /* expectedType */ undefined
                             )
@@ -1648,18 +1672,11 @@ export function validateClassPattern(evaluator: TypeEvaluator, pattern: PatternC
             );
         }
     } else {
-        const isBuiltIn = classPatternSpecialCases.some((className) => exprType.details.fullName === className);
+        const isBuiltIn = isClassSpecialCaseForClassPattern(exprType);
 
-        // If it's a special-case builtin class, only one positional argument is allowed.
+        // If it's a special-case builtin class, only positional arguments are allowed.
         if (isBuiltIn) {
-            if (pattern.arguments.length > 1) {
-                evaluator.addDiagnostic(
-                    getFileInfo(pattern).diagnosticRuleSet.reportGeneralTypeIssues,
-                    DiagnosticRule.reportGeneralTypeIssues,
-                    Localizer.Diagnostic.classPatternBuiltInArgCount(),
-                    pattern.arguments[1]
-                );
-            } else if (pattern.arguments.length === 1 && pattern.arguments[0].name) {
+            if (pattern.arguments.length === 1 && pattern.arguments[0].name) {
                 evaluator.addDiagnostic(
                     getFileInfo(pattern).diagnosticRuleSet.reportGeneralTypeIssues,
                     DiagnosticRule.reportGeneralTypeIssues,
@@ -1667,6 +1684,36 @@ export function validateClassPattern(evaluator: TypeEvaluator, pattern: PatternC
                     pattern.arguments[0].name
                 );
             }
+        }
+
+        // Emits an error if the supplied number of positional patterns is less than
+        // expected for the given subject type.
+        let positionalPatternCount = pattern.arguments.findIndex((arg) => arg.name !== undefined);
+        if (positionalPatternCount < 0) {
+            positionalPatternCount = pattern.arguments.length;
+        }
+
+        let expectedPatternCount = 1;
+        if (!isBuiltIn) {
+            let positionalArgNames: string[] = [];
+            if (pattern.arguments.some((arg) => !arg.name)) {
+                positionalArgNames = getPositionalMatchArgNames(evaluator, exprType);
+            }
+
+            expectedPatternCount = positionalArgNames.length;
+        }
+
+        if (positionalPatternCount > expectedPatternCount) {
+            evaluator.addDiagnostic(
+                getFileInfo(pattern).diagnosticRuleSet.reportGeneralTypeIssues,
+                DiagnosticRule.reportGeneralTypeIssues,
+                Localizer.Diagnostic.classPatternPositionalArgCount().format({
+                    type: exprType.details.name,
+                    expected: expectedPatternCount,
+                    received: positionalPatternCount,
+                }),
+                pattern.arguments[expectedPatternCount]
+            );
         }
     }
 }
