@@ -36,7 +36,7 @@ module.exports = (_, { mode }) => {
             timings: true,
         },
         resolve: {
-            extensions: ['.ts', '.js'],
+            extensions: ['.ts', '.js', '.node'],
             alias: tsconfigResolveAliases('tsconfig.json'),
         },
         externals: {
@@ -61,6 +61,10 @@ module.exports = (_, { mode }) => {
                         target: 'node12',
                     },
                 },
+								{
+									test: /\.node$/,
+									loader: 'node-loader',
+								}
             ],
         },
         plugins: [new CopyPlugin({ patterns: [{ from: typeshedFallback, to: 'typeshed-fallback' }] })],

@@ -4,6 +4,7 @@
     "private": true,
     "dependencies": {
         "vscode-languageserver": "8.1.0",
+        "node-calls-python": "^1.8.0",
         "vscode-uri": "^3.0.7"
     },
     "files": [

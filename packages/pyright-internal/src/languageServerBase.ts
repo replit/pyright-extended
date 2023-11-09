@@ -812,6 +812,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
     }
 
     protected onDidChangeConfiguration(params: DidChangeConfigurationParams) {
+        
         this.console.log(`Received updated settings`);
         if (params?.settings) {
             this.defaultClientConfig = params?.settings;
