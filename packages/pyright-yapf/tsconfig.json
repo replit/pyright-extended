@@ -1,5 +1,6 @@
 {
     "extends": "../../tsconfig.json",
+    "target": "es2017",
     "compilerOptions": {
         "outDir": "./out"
     },

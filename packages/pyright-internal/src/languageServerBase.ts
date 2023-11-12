@@ -76,7 +76,7 @@ import {
 import { ResultProgressReporter, attachWorkDone } from 'vscode-languageserver/lib/common/progress';
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { formatBufferWithYapf } from '../../pyright-yapf';
+import { formatBuffer } from '../../pyright-yapf';
 import { AnalysisResults } from './analyzer/analysis';
 import { BackgroundAnalysisProgram, InvalidatedReason } from './analyzer/backgroundAnalysisProgram';
 import { ImportResolver } from './analyzer/importResolver';
@@ -812,7 +812,6 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
     }
 
     protected onDidChangeConfiguration(params: DidChangeConfigurationParams) {
-        
         this.console.log(`Received updated settings`);
         if (params?.settings) {
             this.defaultClientConfig = params?.settings;
@@ -849,7 +848,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
 
         const buf = workspace.service.getSourceFile(filePath)?.getOpenFileContents();
         if (!buf) return;
-        return formatBufferWithYapf(buf, params.options.tabSize, !params.options.insertSpaces);
+        return formatBuffer(buf, params.options.tabSize, !params.options.insertSpaces);
     }
 
     protected async onDeclaration(

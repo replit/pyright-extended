@@ -13,6 +13,9 @@ const typeshedFallback = path.resolve(__dirname, '..', 'pyright-internal', 'type
 /**@type {(env: any, argv: { mode: 'production' | 'development' | 'none' }) => import('webpack').Configuration}*/
 module.exports = (_, { mode }) => {
     return {
+        node: {
+            __dirname: false,
+        },
         context: __dirname,
         entry: {
             pyright: './src/pyright.ts',
@@ -36,7 +39,7 @@ module.exports = (_, { mode }) => {
             timings: true,
         },
         resolve: {
-            extensions: ['.ts', '.js', '.node'],
+            extensions: ['.ts', '.js'],
             alias: tsconfigResolveAliases('tsconfig.json'),
         },
         externals: {
@@ -61,10 +64,10 @@ module.exports = (_, { mode }) => {
                         target: 'node12',
                     },
                 },
-								{
-									test: /\.node$/,
-									loader: 'node-loader',
-								}
+                {
+                    test: /\.wasm$/,
+                    type: 'asset/inline',
+                },
             ],
         },
         plugins: [new CopyPlugin({ patterns: [{ from: typeshedFallback, to: 'typeshed-fallback' }] })],
