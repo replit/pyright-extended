@@ -848,7 +848,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
 
         const buf = workspace.service.getSourceFile(filePath)?.getOpenFileContents();
         if (!buf) return;
-        return formatBufferWithYapf(buf, params.options.tabSize);
+        return formatBufferWithYapf(buf, params.options.tabSize, !params.options.insertSpaces);
     }
 
     protected async onDeclaration(
