@@ -1,5 +1,7 @@
 ![Pyright](https://github.com/microsoft/pyright/blob/main/docs/img/PyrightLarge.png)
 
+[![Run on Repl.it](https://img.shields.io/badge/run-on_Replit-f26208?logo=replit)](https://repl.it/github/replit/pyright-extended) [![npm: @replit/pyright-extended](https://img.shields.io/npm/v/%40replit%2Fpyright-extended)](https://www.npmjs.com/package/@replit/pyright-extended)
+
 Pyright is a full-featured, standards-based static type checker for Python. It is designed for high performance and can be used with large Python source bases.
 Refer to [the documentation](https://microsoft.github.io/pyright) for installation, configuration, and usage details.
 
