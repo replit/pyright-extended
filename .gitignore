@@ -126,3 +126,6 @@ Thumbs.db
 
 # Potential venv
 .venv
+
+# pyright-extended development environment
+python-workspace/
