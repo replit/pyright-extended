@@ -85,7 +85,11 @@ jobs:
         with:
           python-version: '3.9'
           cache: 'pip'
-      - run: pip install ruff yapf
+      - run: |
+          pip install ruff yapf
+          if [ "${{ matrix.os }}" == "macos-latest" ]; then
+            brew install python@${{ matrix.python-version }}
+          fi
 
       - uses: actions/setup-node@v3
         with:
