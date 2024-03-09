@@ -87,7 +87,7 @@ jobs:
           cache: 'pip'
       - run: |
           pip install ruff yapf
-      - if: matrix.os == macos-latest
+      - if: matrix.os == 'macos-latest'
         run: brew install python@3.9
 
       - uses: actions/setup-node@v3
