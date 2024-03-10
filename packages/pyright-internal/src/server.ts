@@ -144,7 +144,7 @@ export class PyrightServer extends LanguageServerBase {
                 if (diagnosticSeverityOverrides) {
                     for (const [name, value] of Object.entries(diagnosticSeverityOverrides)) {
                         const ruleName = this.getDiagnosticRuleName(name);
-                        const severity = this.getSeverityOverrides(value as string);
+                        const severity = this.getSeverityOverrides(value as string | boolean);
                         if (ruleName && severity) {
                             serverSettings.diagnosticSeverityOverrides![ruleName] = severity!;
                         }
@@ -171,7 +171,7 @@ export class PyrightServer extends LanguageServerBase {
                         .map((p) => resolvePaths(workspace.rootPath, expandPathVariables(workspace.rootPath, p)));
                 }
 
-                serverSettings.fileSpecs = this._getStringValues(pythonAnalysisSection.include);
+                serverSettings.includeFileSpecs = this._getStringValues(pythonAnalysisSection.include);
                 serverSettings.excludeFileSpecs = this._getStringValues(pythonAnalysisSection.exclude);
                 serverSettings.ignoreFileSpecs = this._getStringValues(pythonAnalysisSection.ignore);
 

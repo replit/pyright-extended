@@ -20,17 +20,10 @@ import { getFileInfo } from './analyzerNodeInfo';
 import { populateTypeVarContextBasedOnExpectedType } from './constraintSolver';
 import { applyConstructorTransform, hasConstructorTransform } from './constructorTransform';
 import { getTypeVarScopesForNode } from './parseTreeUtils';
+import { CallResult, FunctionArgument, TypeEvaluator, TypeResult } from './typeEvaluatorTypes';
 import {
-    CallResult,
-    ClassMemberLookup,
-    FunctionArgument,
-    MemberAccessFlags,
-    TypeEvaluator,
-    TypeResult,
-} from './typeEvaluatorTypes';
-import {
-    ClassMemberLookupFlags,
     InferenceContext,
+    MemberAccessFlags,
     applySolvedTypeVars,
     buildTypeVarContextFromSpecializedClass,
     convertToInstance,
@@ -57,12 +50,58 @@ import {
     isAnyOrUnknown,
     isClassInstance,
     isFunction,
-    isInstantiableClass,
     isNever,
     isOverloadedFunction,
     isTypeVar,
     isUnknown,
 } from './types';
+
+// Fetches and binds the __new__ method from a class.
+export function getBoundNewMethod(
+    evaluator: TypeEvaluator,
+    errorNode: ExpressionNode,
+    type: ClassType,
+    skipObjectBase = true
+) {
+    let flags =
+        MemberAccessFlags.SkipClassMembers |
+        MemberAccessFlags.SkipAttributeAccessOverride |
+        MemberAccessFlags.TreatConstructorAsClassMethod;
+    if (skipObjectBase) {
+        flags |= MemberAccessFlags.SkipObjectBaseClass;
+    }
+
+    return evaluator.getTypeOfBoundMember(errorNode, type, '__new__', { method: 'get' }, /* diag */ undefined, flags);
+}
+
+// Fetches and binds the __init__ method from a class instance.
+export function getBoundInitMethod(
+    evaluator: TypeEvaluator,
+    errorNode: ExpressionNode,
+    type: ClassType,
+    skipObjectBase = true
+) {
+    let flags = MemberAccessFlags.SkipInstanceMembers | MemberAccessFlags.SkipAttributeAccessOverride;
+    if (skipObjectBase) {
+        flags |= MemberAccessFlags.SkipObjectBaseClass;
+    }
+
+    return evaluator.getTypeOfBoundMember(errorNode, type, '__init__', { method: 'get' }, /* diag */ undefined, flags);
+}
+
+// Fetches and binds the __call__ method from a class or its metaclass.
+export function getBoundCallMethod(evaluator: TypeEvaluator, errorNode: ExpressionNode, type: ClassType) {
+    return evaluator.getTypeOfBoundMember(
+        errorNode,
+        type,
+        '__call__',
+        { method: 'get' },
+        /* diag */ undefined,
+        MemberAccessFlags.SkipInstanceMembers |
+            MemberAccessFlags.SkipTypeBaseClass |
+            MemberAccessFlags.SkipAttributeAccessOverride
+    );
+}
 
 // Matches the arguments of a call to the constructor for a class.
 // If successful, it returns the resulting (specialized) object type that
@@ -97,20 +136,7 @@ export function validateConstructorArguments(
     }
 
     // Determine whether the class overrides the object.__new__ method.
-    const newMethodTypeResult = evaluator.getTypeOfClassMemberName(
-        errorNode,
-        type,
-        /* isAccessedThroughObject */ false,
-        '__new__',
-        { method: 'get' },
-        /* diag */ undefined,
-        MemberAccessFlags.AccessClassMembersOnly |
-            MemberAccessFlags.SkipObjectBaseClass |
-            MemberAccessFlags.SkipAttributeAccessOverride |
-            MemberAccessFlags.TreatConstructorAsClassMethod,
-        type
-    );
-
+    const newMethodTypeResult = getBoundNewMethod(evaluator, errorNode, type);
     const useConstructorTransform = hasConstructorTransform(type);
 
     // If there is a constructor transform, evaluate all arguments speculatively
@@ -202,7 +228,7 @@ function validateNewAndInitMethods(
     type: ClassType,
     skipUnknownArgCheck: boolean,
     inferenceContext: InferenceContext | undefined,
-    newMethodTypeResult: ClassMemberLookup | undefined
+    newMethodTypeResult: TypeResult | undefined
 ): CallResult {
     let returnType: Type | undefined;
     let validatedArgExpressions = false;
@@ -244,10 +270,9 @@ function validateNewAndInitMethods(
         // (cls, *args, **kwargs) -> Self, allow the __init__ method to
         // determine the specialized type of the class.
         newMethodReturnType = ClassType.cloneAsInstance(type);
-    } else if (!isNever(newMethodReturnType) && !isClassInstance(newMethodReturnType)) {
-        // If the __new__ method returns something other than an object or
-        // NoReturn, we'll ignore its return type and assume that it
-        // returns Self.
+    } else if (isAnyOrUnknown(newMethodReturnType)) {
+        // If the __new__ method returns Any or Unknown, we'll ignore its return
+        // type and assume that it returns Self.
         newMethodReturnType = applySolvedTypeVars(
             ClassType.cloneAsInstance(type),
             new TypeVarContext(getTypeVarScopeId(type)),
@@ -261,7 +286,8 @@ function validateNewAndInitMethods(
     if (
         !argumentErrors &&
         !isNever(newMethodReturnType) &&
-        !shouldSkipInitEvaluation(evaluator, type, newMethodReturnType)
+        !shouldSkipInitEvaluation(evaluator, type, newMethodReturnType) &&
+        isClassInstance(newMethodReturnType)
     ) {
         // If the __new__ method returned the same type as the class it's constructing
         // but didn't supply solved type arguments, we'll ignore its specialized return
@@ -272,19 +298,7 @@ function validateNewAndInitMethods(
         }
 
         // Determine whether the class overrides the object.__init__ method.
-        initMethodTypeResult = evaluator.getTypeOfClassMemberName(
-            errorNode,
-            initMethodBindToType,
-            /* isAccessedThroughObject */ false,
-            '__init__',
-            { method: 'get' },
-            /* diag */ undefined,
-            MemberAccessFlags.AccessClassMembersOnly |
-                MemberAccessFlags.SkipObjectBaseClass |
-                MemberAccessFlags.SkipAttributeAccessOverride,
-
-            type
-        );
+        initMethodTypeResult = getBoundInitMethod(evaluator, errorNode, initMethodBindToType);
 
         // Validate __init__ if it's present.
         if (initMethodTypeResult) {
@@ -608,14 +622,16 @@ function validateFallbackConstructorCall(
 
     // It's OK if the argument list consists only of `*args` and `**kwargs`.
     if (argList.length > 0 && argList.some((arg) => arg.argumentCategory === ArgumentCategory.Simple)) {
-        const fileInfo = getFileInfo(errorNode);
-        evaluator.addDiagnostic(
-            fileInfo.diagnosticRuleSet.reportGeneralTypeIssues,
-            DiagnosticRule.reportGeneralTypeIssues,
-            Localizer.Diagnostic.constructorNoArgs().format({ type: type.aliasName || type.details.name }),
-            errorNode
-        );
-        reportedErrors = true;
+        if (!type.includeSubclasses) {
+            const fileInfo = getFileInfo(errorNode);
+            evaluator.addDiagnostic(
+                fileInfo.diagnosticRuleSet.reportGeneralTypeIssues,
+                DiagnosticRule.reportGeneralTypeIssues,
+                Localizer.Diagnostic.constructorNoArgs().format({ type: type.aliasName || type.details.name }),
+                errorNode
+            );
+            reportedErrors = true;
+        }
     }
 
     if (!inferenceContext && type.typeArguments) {
@@ -658,47 +674,27 @@ function validateMetaclassCall(
     skipUnknownArgCheck: boolean,
     inferenceContext: InferenceContext | undefined
 ): CallResult | undefined {
-    const metaclass = type.details.effectiveMetaclass;
+    const metaclassCallMethodInfo = getBoundCallMethod(evaluator, errorNode, type);
 
-    if (metaclass && isInstantiableClass(metaclass) && !ClassType.isSameGenericClass(metaclass, type)) {
-        const metaclassCallMethodInfo = evaluator.getTypeOfClassMemberName(
+    if (metaclassCallMethodInfo) {
+        const callResult = evaluator.validateCallArguments(
             errorNode,
-            metaclass,
-            /* isAccessedThroughObject */ true,
-            '__call__',
-            { method: 'get' },
-            /* diag */ undefined,
-            MemberAccessFlags.ConsiderMetaclassOnly |
-                MemberAccessFlags.SkipTypeBaseClass |
-                MemberAccessFlags.SkipAttributeAccessOverride,
-            type
+            argList,
+            metaclassCallMethodInfo,
+            /* typeVarContext */ undefined,
+            skipUnknownArgCheck,
+            inferenceContext
         );
 
-        if (metaclassCallMethodInfo) {
-            const callResult = evaluator.validateCallArguments(
-                errorNode,
-                argList,
-                metaclassCallMethodInfo,
-                /* typeVarContext */ undefined,
-                skipUnknownArgCheck,
-                inferenceContext
-            );
-
-            if (!callResult.returnType || isUnknown(callResult.returnType)) {
-                // The return result isn't known. We'll assume in this case that
-                // the metaclass __call__ method allocated a new instance of the
-                // requested class.
-                const typeVarContext = new TypeVarContext(getTypeVarScopeId(type));
-                callResult.returnType = applyExpectedTypeForConstructor(
-                    evaluator,
-                    type,
-                    inferenceContext,
-                    typeVarContext
-                );
-            }
-
-            return callResult;
+        if (!callResult.returnType || isUnknown(callResult.returnType)) {
+            // The return result isn't known. We'll assume in this case that
+            // the metaclass __call__ method allocated a new instance of the
+            // requested class.
+            const typeVarContext = new TypeVarContext(getTypeVarScopeId(type));
+            callResult.returnType = applyExpectedTypeForConstructor(evaluator, type, inferenceContext, typeVarContext);
         }
+
+        return callResult;
     }
 
     return undefined;
@@ -793,7 +789,9 @@ export function createFunctionFromConstructor(
     const initInfo = lookUpClassMember(
         classType,
         '__init__',
-        ClassMemberLookupFlags.SkipInstanceVariables | ClassMemberLookupFlags.SkipObjectBaseClass
+        MemberAccessFlags.SkipInstanceMembers |
+            MemberAccessFlags.SkipAttributeAccessOverride |
+            MemberAccessFlags.SkipObjectBaseClass
     );
 
     if (initInfo) {
@@ -804,7 +802,11 @@ export function createFunctionFromConstructor(
             let constructorFunction = evaluator.bindFunctionToClassOrObject(
                 objectType,
                 initSubtype,
-                /* memberClass */ undefined
+                /* memberClass */ undefined,
+                /* treatConstructorAsClassMember */ undefined,
+                /* selfType */ undefined,
+                /* diag */ undefined,
+                recursionCount
             ) as FunctionType | undefined;
 
             if (constructorFunction) {
@@ -853,7 +855,9 @@ export function createFunctionFromConstructor(
     const newInfo = lookUpClassMember(
         classType,
         '__new__',
-        ClassMemberLookupFlags.SkipInstanceVariables | ClassMemberLookupFlags.SkipObjectBaseClass
+        MemberAccessFlags.SkipInstanceMembers |
+            MemberAccessFlags.SkipAttributeAccessOverride |
+            MemberAccessFlags.SkipObjectBaseClass
     );
 
     if (newInfo) {
@@ -864,7 +868,10 @@ export function createFunctionFromConstructor(
                 classType,
                 newSubtype,
                 /* memberClass */ undefined,
-                /* treatConstructorAsClassMember */ true
+                /* treatConstructorAsClassMember */ true,
+                /* selfType */ undefined,
+                /* diag */ undefined,
+                recursionCount
             ) as FunctionType | undefined;
 
             if (constructorFunction) {

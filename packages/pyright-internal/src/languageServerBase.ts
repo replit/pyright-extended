@@ -92,7 +92,12 @@ import {
     DiagnosticSeverityOverridesMap,
     getDiagnosticSeverityOverrides,
 } from './common/commandLineOptions';
-import { ConfigOptions, SignatureDisplayType, getDiagLevelDiagnosticRules } from './common/configOptions';
+import {
+    ConfigOptions,
+    SignatureDisplayType,
+    getDiagLevelDiagnosticRules,
+    parseDiagLevel,
+} from './common/configOptions';
 import { ConsoleInterface, ConsoleWithLogLevel, LogLevel } from './common/console';
 import {
     Diagnostic as AnalyzerDiagnostic,
@@ -156,7 +161,7 @@ export interface ServerSettings {
     indexing?: boolean | undefined;
     logTypeEvaluationTime?: boolean | undefined;
     typeEvaluationTimeThreshold?: number | undefined;
-    fileSpecs?: string[];
+    includeFileSpecs?: string[];
     excludeFileSpecs?: string[];
     ignoreFileSpecs?: string[];
     taskListTokens?: TaskListToken[];
@@ -583,8 +588,11 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
         return diagnosticMode !== 'workspace';
     }
 
-    protected getSeverityOverrides(value: string): DiagnosticSeverityOverrides | undefined {
-        const enumValue = value as DiagnosticSeverityOverrides;
+    protected getSeverityOverrides(value: string | boolean): DiagnosticSeverityOverrides | undefined {
+        const enumValue = parseDiagLevel(value);
+        if (!enumValue) {
+            return undefined;
+        }
         if (getDiagnosticSeverityOverrides().includes(enumValue)) {
             return enumValue;
         }
@@ -1341,7 +1349,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
                 return;
             }
 
-            this._sendDiagnostics(this.convertDiagnostics(fs, fileDiag));
+            this.sendDiagnostics(this.convertDiagnostics(fs, fileDiag));
         });
 
         if (!this._progressReporter.isEnabled(results)) {
@@ -1389,7 +1397,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
                 if (otherWorkspaces.some((w) => w.service.isTracked(filePath))) {
                     continue;
                 }
-                this._sendDiagnostics([
+                this.sendDiagnostics([
                     {
                         uri: uri,
                         diagnostics: [],
@@ -1470,6 +1478,17 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
         };
     }
 
+    protected sendDiagnostics(params: PublishDiagnosticsParams[]) {
+        for (const param of params) {
+            if (param.diagnostics.length === 0) {
+                this.documentsWithDiagnostics.delete(param.uri);
+            } else {
+                this.documentsWithDiagnostics.add(param.uri);
+            }
+            this.connection.sendDiagnostics(param);
+        }
+    }
+
     private _setupFileWatcher() {
         if (!this.client.hasWatchFileCapability) {
             // we won't get notifs from client for changes, let's spawn a watcher to track our own
@@ -1513,17 +1532,6 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
 
             this._lastFileWatcherRegistration = d;
         });
-    }
-
-    private _sendDiagnostics(params: PublishDiagnosticsParams[]) {
-        for (const param of params) {
-            if (param.diagnostics.length === 0) {
-                this.documentsWithDiagnostics.delete(param.uri);
-            } else {
-                this.documentsWithDiagnostics.add(param.uri);
-            }
-            this.connection.sendDiagnostics(param);
-        }
     }
 
     private _getCompatibleMarkupKind(clientSupportedFormats: MarkupKind[] | undefined) {

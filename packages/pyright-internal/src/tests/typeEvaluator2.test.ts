@@ -164,7 +164,7 @@ test('AugmentedAssignment3', () => {
 test('Super1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['super1.py']);
 
-    TestUtils.validateResults(analysisResults, 5);
+    TestUtils.validateResults(analysisResults, 6);
 });
 
 test('Super2', () => {
@@ -217,6 +217,12 @@ test('Super9', () => {
 
 test('Super10', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['super10.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('Super11', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['super11.py']);
 
     TestUtils.validateResults(analysisResults, 0);
 });
