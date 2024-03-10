@@ -4,13 +4,13 @@ Pyright offers flexible configuration options specified in a JSON-formatted text
 
 Pyright settings can also be specified in a `[tool.pyright]` section of a “pyproject.toml” file. A “pyrightconfig.json” file always takes precedent over “pyproject.toml” if both are present. For a sample pyproject.toml file, see [below](configuration.md#sample-pyprojecttoml-file).
 
-Relative paths specified within the config file are relative to the config file’s location. Paths with shell variables (including `~`) are not supported. Paths within a the config file should generally be relative paths so the config file can be shared by other developers who contribute to the project.
+Relative paths specified within the config file are relative to the config file’s location. Paths with shell variables (including `~`) are not supported. Paths within a config file should generally be relative paths so the config file can be shared by other developers who contribute to the project.
 
 ## Main Configuration Options
 
 **include** [array of paths, optional]: Paths of directories or files that should be included. If no paths are specified, pyright defaults to the directory that contains the config file. Paths may contain wildcard characters ** (a directory or multiple levels of directories), * (a sequence of zero or more characters), or ? (a single character). If no include paths are specified, the root path for the workspace is assumed.
 
-**exclude** [array of paths, optional]: Paths of directories or files that should not be included. These override the includes directories, allowing specific subdirectories to be ignored. Note that files in the exclude paths may still be included in the analysis if they are referenced (imported) by source files that are not excluded. Paths may contain wildcard characters ** (a directory or multiple levels of directories), * (a sequence of zero or more characters), or ? (a single character). If no exclude paths are specified, Pyright automatically excludes the following: `**/node_modules`, `**/__pycache__`, `**/.*` and any virtual environment directories.
+**exclude** [array of paths, optional]: Paths of directories or files that should not be included. These override the includes directories and files, allowing specific subdirectories to be ignored. Note that files in the exclude paths may still be included in the analysis if they are referenced (imported) by source files that are not excluded. Paths may contain wildcard characters ** (a directory or multiple levels of directories), * (a sequence of zero or more characters), or ? (a single character). If no exclude paths are specified, Pyright automatically excludes the following: `**/node_modules`, `**/__pycache__`, `**/.*`. Pylance also excludes any virtual environment directories regardless of the exclude paths specified. For more detail on Python environment specification and discovery, refer to the [import resolution](import-resolution.md#configuring-your-python-environment) documentation.
 
 **ignore** [array of paths, optional]: Paths of directories or files whose diagnostic output (errors and warnings) should be suppressed even if they are an included file or within the transitive closure of an included file. Paths may contain wildcard characters ** (a directory or multiple levels of directories), * (a sequence of zero or more characters), or ? (a single character).
 
@@ -36,7 +36,7 @@ Relative paths specified within the config file are relative to the config file�
 
 **executionEnvironments** [array of objects, optional]: Specifies a list of execution environments (see [below](configuration.md#execution-environment-options)). Execution environments are searched from start to finish by comparing the path of a source file with the root path specified in the execution environment.
 
-**typeCheckingMode** ["off", "basic", "strict"]: Specifies the default rule set to use. Some rules can be overridden using additional configuration flags documented below. The default value for this setting is "basic". If set to "off", all type-checking rules are disabled, but Python syntax and semantic errors are still reported.
+**typeCheckingMode** ["off", "basic", "standard", "strict"]: Specifies the default rule set to use. Some rules can be overridden using additional configuration flags documented below. The default value for this setting is "standard". If set to "off", all type-checking rules are disabled, but Python syntax and semantic errors are still reported.
 
 **useLibraryCodeForTypes** [boolean]: Determines whether pyright reads, parses and analyzes library code to extract type information in the absence of type stub files. Type information will typically be incomplete. We recommend using type stubs where possible. The default value for this option is true.
 
@@ -66,11 +66,13 @@ The following settings control pyright’s diagnostic output (warnings or errors
 
 <a name="reportPropertyTypeMismatch"></a> **reportPropertyTypeMismatch** [boolean or string, optional]: Generate or suppress diagnostics for properties where the type of the value passed to the setter is not assignable to the value returned by the getter. Such mismatches violate the intended use of properties, which are meant to act like variables. The default value for this setting is `"none"`.
 
-<a name="reportFunctionMemberAccess"></a> **reportFunctionMemberAccess** [boolean or string, optional]: Generate or suppress diagnostics for non-standard member accesses for functions. The default value for this setting is `"none"`.
+<a name="reportFunctionMemberAccess"></a> **reportFunctionMemberAccess** [boolean or string, optional]: Generate or suppress diagnostics for non-standard member accesses for functions. The default value for this setting is `"error"`.
 
 <a name="reportMissingImports"></a> **reportMissingImports** [boolean or string, optional]: Generate or suppress diagnostics for imports that have no corresponding imported python file or type stub file. The default value for this setting is `"error"`.
 
 <a name="reportMissingModuleSource"></a> **reportMissingModuleSource** [boolean or string, optional]: Generate or suppress diagnostics for imports that have no corresponding source file. This happens when a type stub is found, but the module source file was not found, indicating that the code may fail at runtime when using this execution environment. Type checking will be done using the type stub. The default value for this setting is `"warning"`.
+
+<a name="reportInvalidTypeForm"></a> **reportInvalidTypeForm** [boolean or string, optional]: Generate or suppress diagnostics for type annotations that use invalid type expression forms or are semantically invalid. The default value for this setting is `"error"`.
 
 <a name="reportMissingTypeStubs"></a> **reportMissingTypeStubs** [boolean or string, optional]: Generate or suppress diagnostics for imports that have no corresponding type stub file (either a typeshed file or a custom type stub). The type checker requires type stubs to do its best job at analysis. The default value for this setting is `"none"`. Note that there is a corresponding quick fix for this diagnostics that let you generate custom type stub to improve editing experiences.
 
@@ -88,6 +90,28 @@ The following settings control pyright’s diagnostic output (warnings or errors
 
 <a name="reportWildcardImportFromLibrary"></a> **reportWildcardImportFromLibrary** [boolean or string, optional]: Generate or suppress diagnostics for a wildcard import from an external library. The use of this language feature is highly discouraged and can result in bugs when the library is updated. The default value for this setting is `"warning"`.
 
+<a name="reportAbstractUsage"></a> **reportAbstractUsage** [boolean or string, optional]: Generate or suppress diagnostics for the attempted instantiate an abstract or protocol class or use of an abstract method. The default value for this setting is `"error"`.
+
+<a name="reportArgumentType"></a> **reportArgumentType** [boolean or string, optional]: Generate or suppress diagnostics for argument type incompatibilities when evaluating a call expression. The default value for this setting is `"error"`.
+
+<a name="reportAssertTypeFailure"></a> **reportAssertTypeFailure** [boolean or string, optional]: Generate or suppress diagnostics for a type mismatch detected by the `typing.assert_type` call. The default value for this setting is `"error"`.
+
+<a name="reportAssignmentType"></a> **reportAssignmentType** [boolean or string, optional]: Generate or suppress diagnostics for assignment type incompatibility. The default value for this setting is `"error"`.
+
+<a name="reportAttributeAccessIssue"></a> **reportAttributeAccessIssue** [boolean or string, optional]: Generate or suppress diagnostics related to attribute accesses. The default value for this setting is `"error"`.
+
+<a name="reportCallIssue"></a> **reportCallIssue** [boolean or string, optional]: Generate or suppress diagnostics related to call expressions and arguments passed to a call target. The default value for this setting is `"error"`.
+
+<a name="reportInconsistentOverload"></a> **reportInconsistentOverload** [boolean or string, optional]: Generate or suppress diagnostics for an overloaded function that has overload signatures that are inconsistent with each other or with the implementation. The default value for this setting is `"error"`.
+
+<a name="reportIndexIssue"></a> **reportIndexIssue** [boolean or string, optional]: Generate or suppress diagnostics related to index operations and expressions. The default value for this setting is `"error"`.
+
+<a name="reportInvalidTypeArguments"></a> **reportInvalidTypeArguments** [boolean or string, optional]: Generate or suppress diagnostics for invalid type argument usage. The default value for this setting is `"error"`.
+
+<a name="reportNoOverloadImplementation"></a> **reportNoOverloadImplementation** [boolean or string, optional]: Generate or suppress diagnostics for an overloaded function or method if the implementation is not provided. The default value for this setting is `"error"`.
+
+<a name="reportOperatorIssue"></a> **reportOperatorIssue** [boolean or string, optional]: Generate or suppress diagnostics related to the use of unary or binary operators (like `*` or `not`). The default value for this setting is `"error"`.
+
 <a name="reportOptionalSubscript"></a> **reportOptionalSubscript** [boolean or string, optional]: Generate or suppress diagnostics for an attempt to subscript (index) a variable with an Optional type. The default value for this setting is `"error"`.
 
 <a name="reportOptionalMemberAccess"></a> **reportOptionalMemberAccess** [boolean or string, optional]: Generate or suppress diagnostics for an attempt to access a member of a variable with an Optional type. The default value for this setting is `"error"`.
@@ -98,7 +122,11 @@ The following settings control pyright’s diagnostic output (warnings or errors
 
 <a name="reportOptionalContextManager"></a> **reportOptionalContextManager** [boolean or string, optional]: Generate or suppress diagnostics for an attempt to use an Optional type as a context manager (as a parameter to a `with` statement). The default value for this setting is `"error"`.
 
-<a name="reportOptionalOperand"></a> **reportOptionalOperand** [boolean or string, optional]: Generate or suppress diagnostics for an attempt to use an Optional type as an operand to a binary or unary operator (like `+`, `==`, `or`, `not`). The default value for this setting is `"error"`.
+<a name="reportOptionalOperand"></a> **reportOptionalOperand** [boolean or string, optional]: Generate or suppress diagnostics for an attempt to use an Optional type as an operand to a unary operator (like `~` or `not`) or the left-hand operator of a binary operator (like `*`, `==`, `or`). The default value for this setting is `"error"`.
+
+<a name="reportRedeclaration"></a> **reportRedeclaration** [boolean or string, optional]: Generate or suppress diagnostics for a symbol that has more than one type declaration. The default value for this setting is `"error"`.
+
+<a name="reportReturnType"></a> **reportReturnType** [boolean or string, optional]: Generate or suppress diagnostics related to function return type compatibility. The default value for this setting is `"error"`.
 
 <a name="reportTypedDictNotRequiredAccess"></a> **reportTypedDictNotRequiredAccess** [boolean or string, optional]: Generate or suppress diagnostics for an attempt to access a non-required field within a TypedDict without first checking whether it is present. The default value for this setting is `"error"`.
 
@@ -120,13 +148,15 @@ The following settings control pyright’s diagnostic output (warnings or errors
 
 <a name="reportDeprecated"></a> **reportDeprecated** [boolean or string, optional]: Generate or suppress diagnostics for use of a class or function that has been marked as deprecated. The default value for this setting is `"none"`.
 
-<a name="reportIncompatibleMethodOverride"></a> **reportIncompatibleMethodOverride** [boolean or string, optional]: Generate or suppress diagnostics for methods that override a method of the same name in a base class in an incompatible manner (wrong number of parameters, incompatible parameter types, or incompatible return type). The default value for this setting is `"none"`.
+<a name="reportIncompatibleMethodOverride"></a> **reportIncompatibleMethodOverride** [boolean or string, optional]: Generate or suppress diagnostics for methods that override a method of the same name in a base class in an incompatible manner (wrong number of parameters, incompatible parameter types, or incompatible return type). The default value for this setting is `"error"`.
 
-<a name="reportIncompatibleVariableOverride"></a> **reportIncompatibleVariableOverride** [boolean or string, optional]: Generate or suppress diagnostics for class variable declarations that override a symbol of the same name in a base class with a type that is incompatible with the base class symbol type. The default value for this setting is `"none"`.
+<a name="reportIncompatibleVariableOverride"></a> **reportIncompatibleVariableOverride** [boolean or string, optional]: Generate or suppress diagnostics for class variable declarations that override a symbol of the same name in a base class with a type that is incompatible with the base class symbol type. The default value for this setting is `"error"`.
 
 <a name="reportInconsistentConstructor"></a> **reportInconsistentConstructor** [boolean or string, optional]: Generate or suppress diagnostics when an `__init__` method signature is inconsistent with a `__new__` signature. The default value for this setting is `"none"`.
 
-<a name="reportOverlappingOverload"></a> **reportOverlappingOverload** [boolean or string, optional]: Generate or suppress diagnostics for function overloads that overlap in signature and obscure each other or have incompatible return types. The default value for this setting is `"none"`.
+<a name="reportOverlappingOverload"></a> **reportOverlappingOverload** [boolean or string, optional]: Generate or suppress diagnostics for function overloads that overlap in signature and obscure each other or have incompatible return types. The default value for this setting is `"error"`.
+
+<a name="reportPossiblyUnboundVariable"></a> **reportPossiblyUnboundVariable** [boolean or string, optional]: Generate or suppress diagnostics for variables that are possibly unbound on some code paths. The default value for this setting is `"error"`. The default value for this setting is `"error"`.
 
 <a name="reportMissingSuperCall"></a> **reportMissingSuperCall** [boolean or string, optional]: Generate or suppress diagnostics for `__init__`, `__init_subclass__`, `__enter__` and `__exit__` methods in a subclass that fail to call through to the same-named method on a base class. The default value for this setting is `"none"`.
 
@@ -168,7 +198,7 @@ The following settings control pyright’s diagnostic output (warnings or errors
 
 <a name="reportUndefinedVariable"></a> **reportUndefinedVariable** [boolean or string, optional]: Generate or suppress diagnostics for undefined variables. The default value for this setting is `"error"`.
 
-<a name="reportUnboundVariable"></a> **reportUnboundVariable** [boolean or string, optional]: Generate or suppress diagnostics for unbound and possibly unbound variables. The default value for this setting is `"error"`.
+<a name="reportUnboundVariable"></a> **reportUnboundVariable** [boolean or string, optional]: Generate or suppress diagnostics for unbound variables. The default value for this setting is `"error"`.
 
 <a name="reportInvalidStubStatement"></a> **reportInvalidStubStatement** [boolean or string, optional]: Generate or suppress diagnostics for statements that are syntactically correct but have no purpose within a type stub file. The default value for this setting is `"none"`.
 
@@ -179,6 +209,8 @@ The following settings control pyright’s diagnostic output (warnings or errors
 <a name="reportUnusedCallResult"></a> **reportUnusedCallResult** [boolean or string, optional]: Generate or suppress diagnostics for call statements whose return value is not used in any way and is not None. The default value for this setting is `"none"`.
 
 <a name="reportUnusedCoroutine"></a> **reportUnusedCoroutine** [boolean or string, optional]: Generate or suppress diagnostics for call statements whose return value is not used in any way and is a Coroutine. This identifies a common error where an `await` keyword is mistakenly omitted. The default value for this setting is `"error"`.
+
+<a name="reportUnusedExcept"></a> **reportUnusedExcept** [boolean or string, optional]: Generate or suppress diagnostics for an `except` clause that will never be reached. The default value for this setting is `"error"`.
 
 <a name="reportUnusedExpression"></a> **reportUnusedExpression** [boolean or string, optional]: Generate or suppress diagnostics for simple expressions whose results are not used in any way. The default value for this setting is `"none"`.
 
@@ -211,7 +243,7 @@ The following is an example of a pyright config file:
   "include": [
     "src"
   ],
-  
+
   "exclude": [
     "**/node_modules",
     "**/__pycache__",
@@ -292,84 +324,112 @@ executionEnvironments = [
 ]
 ```
 
-## Diagnostic Rule Defaults
+## Diagnostic Settings Defaults
 
-Each diagnostic rule has a default severity level that is dictated by the specified type checking mode. The default for each rule can be overridden in the configuration file or settings. In strict type checking mode, overrides may only increase the severity level (e.g. from `"warning"` to `"error"`).
+Each diagnostic setting has a default that is dictated by the specified type checking mode. The default for each rule can be overridden in the configuration file or settings. In strict type checking mode, overrides may only increase the strictness (e.g. increase the severity level from `"warning"` to `"error"`).
 
-The following table lists the default severity levels for each diagnostic rule within each type checking mode (`"off"`, `"basic"` and `"strict"`).
+The following table lists the default severity levels for each diagnostic rule within each type checking mode (`"off"`, `"basic"`, `"standard"` and `"strict"`).
 
-| Diagnostic Rule                           | Off        | Basic      | Strict     |
-| :---------------------------------------- | :--------- | :--------- | :--------- |
-| analyzeUnannotatedFunctions               | true       | true       | true       |
-| strictParameterNoneValue                  | true       | true       | true       |
-| enableTypeIgnoreComments                  | true       | true       | true       |
-| disableBytesTypePromotions                | false      | false      | true       |
-| strictListInference                       | false      | false      | true       |
-| strictDictionaryInference                 | false      | false      | true       |
-| strictSetInference                        | false      | false      | true       |
-| deprecateTypingAliases                    | false      | false      | false      |
-| enableExperimentalFeatures                | false      | false      | false      |
-| reportMissingModuleSource                 | "warning"  | "warning"  | "warning"  |
-| reportMissingImports                      | "warning"  | "error"    | "error"    |
-| reportUndefinedVariable                   | "warning"  | "error"    | "error"    |
-| reportAssertAlwaysTrue                    | "none"     | "warning"  | "error"    |
-| reportInvalidStringEscapeSequence         | "none"     | "warning"  | "error"    |
-| reportInvalidTypeVarUse                   | "none"     | "warning"  | "error"    |
-| reportMissingTypeStubs                    | "none"     | "warning"  | "error"    |
-| reportSelfClsParameterName                | "none"     | "warning"  | "error"    |
-| reportUnsupportedDunderAll                | "none"     | "warning"  | "error"    |
-| reportUnusedExpression                    | "none"     | "warning"  | "error"    |
-| reportWildcardImportFromLibrary           | "none"     | "warning"  | "error"    |
-| reportGeneralTypeIssues                   | "none"     | "error"    | "error"    |
-| reportOptionalSubscript                   | "none"     | "error"    | "error"    |
-| reportOptionalMemberAccess                | "none"     | "error"    | "error"    |
-| reportOptionalCall                        | "none"     | "error"    | "error"    |
-| reportOptionalIterable                    | "none"     | "error"    | "error"    |
-| reportOptionalContextManager              | "none"     | "error"    | "error"    |
-| reportOptionalOperand                     | "none"     | "error"    | "error"    |
-| reportTypedDictNotRequiredAccess          | "none"     | "error"    | "error"    |
-| reportPrivateImportUsage                  | "none"     | "error"    | "error"    |
-| reportUnboundVariable                     | "none"     | "error"    | "error"    |
-| reportUnusedCoroutine                     | "none"     | "error"    | "error"    |
-| reportConstantRedefinition                | "none"     | "none"     | "error"    |
-| reportDeprecated                          | "none"     | "none"     | "error"    |
-| reportDuplicateImport                     | "none"     | "none"     | "error"    |
-| reportFunctionMemberAccess                | "none"     | "none"     | "error"    |
-| reportIncompatibleMethodOverride          | "none"     | "none"     | "error"    |
-| reportIncompatibleVariableOverride        | "none"     | "none"     | "error"    |
-| reportIncompleteStub                      | "none"     | "none"     | "error"    |
-| reportInconsistentConstructor             | "none"     | "none"     | "error"    |
-| reportInvalidStubStatement                | "none"     | "none"     | "error"    |
-| reportMatchNotExhaustive                  | "none"     | "none"     | "error"    |
-| reportMissingParameterType                | "none"     | "none"     | "error"    |
-| reportMissingTypeArgument                 | "none"     | "none"     | "error"    |
-| reportOverlappingOverload                 | "none"     | "none"     | "error"    |
-| reportPrivateUsage                        | "none"     | "none"     | "error"    |
-| reportTypeCommentUsage                    | "none"     | "none"     | "error"    |
-| reportUnknownArgumentType                 | "none"     | "none"     | "error"    |
-| reportUnknownLambdaType                   | "none"     | "none"     | "error"    |
-| reportUnknownMemberType                   | "none"     | "none"     | "error"    |
-| reportUnknownParameterType                | "none"     | "none"     | "error"    |
-| reportUnknownVariableType                 | "none"     | "none"     | "error"    |
-| reportUnnecessaryCast                     | "none"     | "none"     | "error"    |
-| reportUnnecessaryComparison               | "none"     | "none"     | "error"    |
-| reportUnnecessaryContains                 | "none"     | "none"     | "error"    |
-| reportUnnecessaryIsInstance               | "none"     | "none"     | "error"    |
-| reportUnusedClass                         | "none"     | "none"     | "error"    |
-| reportUnusedImport                        | "none"     | "none"     | "error"    |
-| reportUnusedFunction                      | "none"     | "none"     | "error"    |
-| reportUnusedVariable                      | "none"     | "none"     | "error"    |
-| reportUntypedBaseClass                    | "none"     | "none"     | "error"    |
-| reportUntypedClassDecorator               | "none"     | "none"     | "error"    |
-| reportUntypedFunctionDecorator            | "none"     | "none"     | "error"    |
-| reportUntypedNamedTuple                   | "none"     | "none"     | "error"    |
-| reportCallInDefaultInitializer            | "none"     | "none"     | "none"     |
-| reportImplicitOverride                    | "none"     | "none"     | "none"     |
-| reportImplicitStringConcatenation         | "none"     | "none"     | "none"     |
-| reportImportCycles                        | "none"     | "none"     | "none"     |
-| reportMissingSuperCall                    | "none"     | "none"     | "none"     |
-| reportPropertyTypeMismatch                | "none"     | "none"     | "none"     |
-| reportShadowedImports                     | "none"     | "none"     | "none"     |
-| reportUninitializedInstanceVariable       | "none"     | "none"     | "none"     |
-| reportUnnecessaryTypeIgnoreComment        | "none"     | "none"     | "none"     |
-| reportUnusedCallResult                    | "none"     | "none"     | "none"     |
+| Diagnostic Rule                           | Off        | Basic      | Standard   | Strict     |
+| :---------------------------------------- | :--------- | :--------- | :--------- | :--------- |
+| analyzeUnannotatedFunctions               | true       | true       | true       | true       |
+| strictParameterNoneValue                  | true       | true       | true       | true       |
+| enableTypeIgnoreComments                  | true       | true       | true       | true       |
+| disableBytesTypePromotions                | false      | false      | false      | true       |
+| strictListInference                       | false      | false      | false      | true       |
+| strictDictionaryInference                 | false      | false      | false      | true       |
+| strictSetInference                        | false      | false      | false      | true       |
+| deprecateTypingAliases                    | false      | false      | false      | false      |
+| enableExperimentalFeatures                | false      | false      | false      | false      |
+| reportMissingModuleSource                 | "warning"  | "warning"  | "warning"  | "warning"  |
+| reportInvalidTypeForm                     | "warning"  | "error"    | "error"    | "error"    |
+| reportMissingImports                      | "warning"  | "error"    | "error"    | "error"    |
+| reportUndefinedVariable                   | "warning"  | "error"    | "error"    | "error"    |
+| reportAssertAlwaysTrue                    | "none"     | "warning"  | "warning"  | "error"    |
+| reportInvalidStringEscapeSequence         | "none"     | "warning"  | "warning"  | "error"    |
+| reportInvalidTypeVarUse                   | "none"     | "warning"  | "warning"  | "error"    |
+| reportMissingTypeStubs                    | "none"     | "warning"  | "warning"  | "error"    |
+| reportSelfClsParameterName                | "none"     | "warning"  | "warning"  | "error"    |
+| reportUnsupportedDunderAll                | "none"     | "warning"  | "warning"  | "error"    |
+| reportUnusedExpression                    | "none"     | "warning"  | "warning"  | "error"    |
+| reportWildcardImportFromLibrary           | "none"     | "warning"  | "warning"  | "error"    |
+| reportAbstractUsage                       | "none"     | "error"    | "error"    | "error"    |
+| reportArgumentType                        | "none"     | "error"    | "error"    | "error"    |
+| reportAssertTypeFailure                   | "none"     | "error"    | "error"    | "error"    |
+| reportAssignmentType                      | "none"     | "error"    | "error"    | "error"    |
+| reportAttributeAccessIssue                | "none"     | "error"    | "error"    | "error"    |
+| reportCallIssue                           | "none"     | "error"    | "error"    | "error"    |
+| reportGeneralTypeIssues                   | "none"     | "error"    | "error"    | "error"    |
+| reportInconsistentOverload                | "none"     | "error"    | "error"    | "error"    |
+| reportIndexIssue                          | "none"     | "error"    | "error"    | "error"    |
+| reportInvalidTypeArguments                | "none"     | "error"    | "error"    | "error"    |
+| reportNoOverloadImplementation            | "none"     | "error"    | "error"    | "error"    |
+| reportOperatorIssue                       | "none"     | "error"    | "error"    | "error"    |
+| reportOptionalSubscript                   | "none"     | "error"    | "error"    | "error"    |
+| reportOptionalMemberAccess                | "none"     | "error"    | "error"    | "error"    |
+| reportOptionalCall                        | "none"     | "error"    | "error"    | "error"    |
+| reportOptionalIterable                    | "none"     | "error"    | "error"    | "error"    |
+| reportOptionalContextManager              | "none"     | "error"    | "error"    | "error"    |
+| reportOptionalOperand                     | "none"     | "error"    | "error"    | "error"    |
+| reportRedeclaration                       | "none"     | "error"    | "error"    | "error"    |
+| reportReturnType                          | "none"     | "error"    | "error"    | "error"    |
+| reportTypedDictNotRequiredAccess          | "none"     | "error"    | "error"    | "error"    |
+| reportPrivateImportUsage                  | "none"     | "error"    | "error"    | "error"    |
+| reportUnboundVariable                     | "none"     | "error"    | "error"    | "error"    |
+| reportUnusedCoroutine                     | "none"     | "error"    | "error"    | "error"    |
+| reportUnusedExcept                        | "none"     | "error"    | "error"    | "error"    |
+| reportFunctionMemberAccess                | "none"     | "none"     | "error"    | "error"    |
+| reportIncompatibleMethodOverride          | "none"     | "none"     | "error"    | "error"    |
+| reportIncompatibleVariableOverride        | "none"     | "none"     | "error"    | "error"    |
+| reportOverlappingOverload                 | "none"     | "none"     | "error"    | "error"    |
+| reportPossiblyUnboundVariable             | "none"     | "none"     | "error"    | "error"    |
+| reportConstantRedefinition                | "none"     | "none"     | "none"     | "error"    |
+| reportDeprecated                          | "none"     | "none"     | "none"     | "error"    |
+| reportDuplicateImport                     | "none"     | "none"     | "none"     | "error"    |
+| reportIncompleteStub                      | "none"     | "none"     | "none"     | "error"    |
+| reportInconsistentConstructor             | "none"     | "none"     | "none"     | "error"    |
+| reportInvalidStubStatement                | "none"     | "none"     | "none"     | "error"    |
+| reportMatchNotExhaustive                  | "none"     | "none"     | "none"     | "error"    |
+| reportMissingParameterType                | "none"     | "none"     | "none"     | "error"    |
+| reportMissingTypeArgument                 | "none"     | "none"     | "none"     | "error"    |
+| reportPrivateUsage                        | "none"     | "none"     | "none"     | "error"    |
+| reportTypeCommentUsage                    | "none"     | "none"     | "none"     | "error"    |
+| reportUnknownArgumentType                 | "none"     | "none"     | "none"     | "error"    |
+| reportUnknownLambdaType                   | "none"     | "none"     | "none"     | "error"    |
+| reportUnknownMemberType                   | "none"     | "none"     | "none"     | "error"    |
+| reportUnknownParameterType                | "none"     | "none"     | "none"     | "error"    |
+| reportUnknownVariableType                 | "none"     | "none"     | "none"     | "error"    |
+| reportUnnecessaryCast                     | "none"     | "none"     | "none"     | "error"    |
+| reportUnnecessaryComparison               | "none"     | "none"     | "none"     | "error"    |
+| reportUnnecessaryContains                 | "none"     | "none"     | "none"     | "error"    |
+| reportUnnecessaryIsInstance               | "none"     | "none"     | "none"     | "error"    |
+| reportUnusedClass                         | "none"     | "none"     | "none"     | "error"    |
+| reportUnusedImport                        | "none"     | "none"     | "none"     | "error"    |
+| reportUnusedFunction                      | "none"     | "none"     | "none"     | "error"    |
+| reportUnusedVariable                      | "none"     | "none"     | "none"     | "error"    |
+| reportUntypedBaseClass                    | "none"     | "none"     | "none"     | "error"    |
+| reportUntypedClassDecorator               | "none"     | "none"     | "none"     | "error"    |
+| reportUntypedFunctionDecorator            | "none"     | "none"     | "none"     | "error"    |
+| reportUntypedNamedTuple                   | "none"     | "none"     | "none"     | "error"    |
+| reportCallInDefaultInitializer            | "none"     | "none"     | "none"     | "none"     |
+| reportImplicitOverride                    | "none"     | "none"     | "none"     | "none"     |
+| reportImplicitStringConcatenation         | "none"     | "none"     | "none"     | "none"     |
+| reportImportCycles                        | "none"     | "none"     | "none"     | "none"     |
+| reportMissingSuperCall                    | "none"     | "none"     | "none"     | "none"     |
+| reportPropertyTypeMismatch                | "none"     | "none"     | "none"     | "none"     |
+| reportShadowedImports                     | "none"     | "none"     | "none"     | "none"     |
+| reportUninitializedInstanceVariable       | "none"     | "none"     | "none"     | "none"     |
+| reportUnnecessaryTypeIgnoreComment        | "none"     | "none"     | "none"     | "none"     |
+| reportUnusedCallResult                    | "none"     | "none"     | "none"     | "none"     |
+
+
+## Locale Configuration
+
+Pyright provides diagnostic messages that are translated to multiple languages. By default, pyright uses the default locale of the operating system. You can override the desired locale through the use of one of the following environment variables, listed in priority order.
+
+```
+LC_ALL="de"
+LC_MESSAGES="en-us"
+LANG="zh-cn"
+LANGUAGE="fr"
+```

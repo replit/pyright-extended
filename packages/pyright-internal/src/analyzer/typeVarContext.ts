@@ -16,6 +16,7 @@ import {
     FunctionType,
     InScopePlaceholderScopeId,
     isFunction,
+    isTypeSame,
     maxTypeRecursionCount,
     TupleTypeArgument,
     Type,
@@ -30,8 +31,10 @@ import {
 // that can be captured by a ParamSpec (or multiple ParamSpecs).
 // We should never hit this limit in practice, but there are certain
 // pathological cases where we could, and we need to protect against
-// this so it doesn't completely exhaust memory.
-const maxSignatureContextCount = 64;
+// this so it doesn't completely exhaust memory. This was previously
+// set to 64, but we have seen cases where a library uses in excess
+// of 300 overloads on a single function.
+const maxSignatureContextCount = 1024;
 
 export interface TypeVarMapEntry {
     typeVar: TypeVarType;
@@ -72,6 +75,34 @@ export class TypeVarSignatureContext {
         }
 
         return newContext;
+    }
+
+    isSame(other: TypeVarSignatureContext) {
+        if (this._typeVarMap.size !== other._typeVarMap.size) {
+            return false;
+        }
+
+        function typesMatch(type1: Type | undefined, type2: Type | undefined) {
+            if (!type1 || !type2) {
+                return type1 === type2;
+            }
+
+            return isTypeSame(type1, type2);
+        }
+
+        let isSame = true;
+        this._typeVarMap.forEach((value, key) => {
+            const otherValue = other._typeVarMap.get(key);
+            if (
+                !otherValue ||
+                !typesMatch(value.narrowBound, otherValue.narrowBound) ||
+                !typesMatch(value.wideBound, otherValue.wideBound)
+            ) {
+                isSame = false;
+            }
+        });
+
+        return isSame;
     }
 
     isEmpty() {
@@ -131,10 +162,17 @@ export class TypeVarSignatureContext {
         reference: TypeVarType,
         narrowBound: Type | undefined,
         narrowBoundNoLiterals?: Type,
-        wideBound?: Type
+        wideBound?: Type,
+        tupleTypes?: TupleTypeArgument[]
     ) {
         const key = TypeVarType.getNameWithScope(reference);
-        this._typeVarMap.set(key, { typeVar: reference, narrowBound, narrowBoundNoLiterals, wideBound });
+        this._typeVarMap.set(key, {
+            typeVar: reference,
+            narrowBound,
+            narrowBoundNoLiterals,
+            wideBound,
+            tupleTypes,
+        });
     }
 
     getTupleTypeVar(reference: TypeVarType): TupleTypeArgument[] | undefined {
@@ -343,6 +381,14 @@ export class TypeVarContext {
         }
     }
 
+    isSame(other: TypeVarContext) {
+        if (other._signatureContexts.length !== this._signatureContexts.length) {
+            return false;
+        }
+
+        return this._signatureContexts.every((context, index) => context.isSame(other._signatureContexts[index]));
+    }
+
     getId() {
         return this._id;
     }
@@ -411,12 +457,13 @@ export class TypeVarContext {
         reference: TypeVarType,
         narrowBound: Type | undefined,
         narrowBoundNoLiterals?: Type,
-        wideBound?: Type
+        wideBound?: Type,
+        tupleTypes?: TupleTypeArgument[]
     ) {
         assert(!this._isLocked);
 
         return this._signatureContexts.forEach((context) => {
-            context.setTypeVarType(reference, narrowBound, narrowBoundNoLiterals, wideBound);
+            context.setTypeVarType(reference, narrowBound, narrowBoundNoLiterals, wideBound, tupleTypes);
         });
     }
 

@@ -15,15 +15,16 @@ import {
     normalizePath,
     normalizeSlashes,
 } from '../../../common/pathUtils';
+import { Uri } from '../../../common/uri/uri';
 import { distlibFolder, libFolder } from '../vfs/factory';
 import {
-    fileMetadataNames,
     FourSlashData,
     FourSlashFile,
     GlobalMetadataOptionNames,
     Marker,
     MetadataOptionNames,
     Range,
+    fileMetadataNames,
 } from './fourSlashTypes';
 
 /**
@@ -70,13 +71,13 @@ export function parseTestData(basePath: string, contents: string, fileName: stri
 
         if (toBoolean(currentFileOptions[MetadataOptionNames.library])) {
             currentFileName = normalizePath(
-                combinePaths(libFolder, getRelativePath(currentFileName, normalizedBasePath))
+                combinePaths(libFolder.getFilePath(), getRelativePath(currentFileName, normalizedBasePath))
             );
         }
 
         if (toBoolean(currentFileOptions[MetadataOptionNames.distLibrary])) {
             currentFileName = normalizePath(
-                combinePaths(distlibFolder, getRelativePath(currentFileName, normalizedBasePath))
+                combinePaths(distlibFolder.getFilePath(), getRelativePath(currentFileName, normalizedBasePath))
             );
         }
 
@@ -198,6 +199,7 @@ function recordObjectMarker(
 
     const marker: Marker = {
         fileName,
+        fileUri: Uri.file(fileName),
         position: location.position,
         data: markerValue,
     };
@@ -221,6 +223,7 @@ function recordMarker(
 ): Marker | undefined {
     const marker: Marker = {
         fileName,
+        fileUri: Uri.file(fileName),
         position: location.position,
     };
 
@@ -309,6 +312,7 @@ function parseFileContent(
 
                         const range: Range = {
                             fileName,
+                            fileUri: Uri.file(fileName),
                             pos: rangeStart!.position,
                             end: i - 1 - difference,
                             marker: rangeStart!.marker,

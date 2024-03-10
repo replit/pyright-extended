@@ -10,6 +10,7 @@ import { AbstractCancellationTokenSource, CancellationTokenSource, Emitter, Even
 import { CancellationToken, Disposable, LSPErrorCodes, ResponseError } from 'vscode-languageserver';
 
 import { isDebugMode } from './core';
+import { Uri } from './uri/uri';
 
 export interface CancellationProvider {
     createCancellationTokenSource(): AbstractCancellationTokenSource;
@@ -47,20 +48,33 @@ export function throwIfCancellationRequested(token: CancellationToken) {
     }
 }
 
+const nullDisposable = Disposable.create(() => {});
+
+export function onCancellationRequested(token: CancellationToken, func: (i: any) => void): Disposable {
+    try {
+        return token.onCancellationRequested(func);
+    } catch {
+        // Certain cancellation token implementations, like SharedArrayCancellation
+        // (https://github.com/microsoft/vscode-languageserver-node/blob/main/jsonrpc/src/common/sharedArrayCancellation.ts#L70),
+        // do not support the `onCancellationRequested` method. In such cases, proceed to the next token.
+        return nullDisposable;
+    }
+}
+
 export function CancelAfter(provider: CancellationProvider, ...tokens: CancellationToken[]) {
     const source = provider.createCancellationTokenSource();
     const disposables: Disposable[] = [];
 
     for (const token of tokens) {
         disposables.push(
-            token.onCancellationRequested((_) => {
+            onCancellationRequested(token, () => {
                 source.cancel();
             })
         );
     }
 
     disposables.push(
-        source.token.onCancellationRequested((_) => {
+        onCancellationRequested(source.token, () => {
             disposables.forEach((d) => d.dispose());
         })
     );
@@ -74,16 +88,21 @@ export class DefaultCancellationProvider implements CancellationProvider {
     }
 }
 
-export function getCancellationTokenId(token: CancellationToken) {
-    return token instanceof FileBasedToken ? token.cancellationFilePath : undefined;
+export function getCancellationTokenId(token: CancellationToken): string | undefined {
+    return token instanceof FileBasedToken ? token.id : undefined;
 }
 
 export class FileBasedToken implements CancellationToken {
+    cancellationFilePath: Uri;
     protected isCancelled = false;
     private _emitter: Emitter<any> | undefined;
 
-    constructor(readonly cancellationFilePath: string, private _fs: { statSync(filePath: string): void }) {
-        // empty
+    constructor(cancellationId: string, private _fs: { statSync(fileUri: Uri): void }) {
+        this.cancellationFilePath = Uri.file(cancellationId);
+    }
+
+    get id(): string {
+        return this.cancellationFilePath.toString();
     }
 
     get isCancellationRequested(): boolean {
@@ -140,7 +159,7 @@ export class FileBasedToken implements CancellationToken {
     }
 }
 
-class CancellationThrottle {
+export class CancellationThrottle {
     private static _lastCheckTimestamp = 0;
 
     static shouldCheck() {
@@ -160,4 +179,26 @@ class CancellationThrottle {
 
         return false;
     }
+}
+
+export async function raceCancellation<T>(token?: CancellationToken, ...promises: Promise<T>[]): Promise<T> {
+    if (!token) {
+        return Promise.race(promises);
+    }
+    if (token.isCancellationRequested) {
+        throw new OperationCanceledException();
+    }
+
+    return new Promise((resolve, reject) => {
+        if (token.isCancellationRequested) {
+            return reject(new OperationCanceledException());
+        }
+        const disposable = onCancellationRequested(token, () => {
+            disposable.dispose();
+            reject(new OperationCanceledException());
+        });
+        Promise.race(promises)
+            .then(resolve, reject)
+            .finally(() => disposable.dispose());
+    });
 }

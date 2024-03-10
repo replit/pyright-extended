@@ -2,20 +2,20 @@
 # when applied to a metaclass.
 
 from typing import Any, TypeVar
-from typing_extensions import dataclass_transform
+from typing_extensions import (  # pyright: ignore[reportMissingModuleSource]
+    dataclass_transform,
+)
 
 _T = TypeVar("_T")
 
 
 class ModelField:
-    def __init__(self, *, init: bool = True, default: Any | None = None) -> None:
-        ...
+    def __init__(self, *, init: bool = True, default: Any | None = None) -> None: ...
 
 
 def model_field(
     *, init: bool = True, default: Any | None = None, alias: str | None = None
-) -> Any:
-    ...
+) -> Any: ...
 
 
 @dataclass_transform(
@@ -25,18 +25,15 @@ def model_field(
 class ModelMeta(type):
     not_a_field: str
 
+
+class ModelBase(metaclass=ModelMeta):
     def __init_subclass__(
         cls,
         *,
         frozen: bool = False,
         kw_only: bool = True,
         order: bool = True,
-    ) -> None:
-        ...
-
-
-class ModelBase(metaclass=ModelMeta):
-    ...
+    ) -> None: ...
 
 
 class Customer1(ModelBase, frozen=True):
@@ -87,8 +84,7 @@ class ModelMetaFrozen(type):
     pass
 
 
-class ModelBaseFrozen(metaclass=ModelMetaFrozen):
-    ...
+class ModelBaseFrozen(metaclass=ModelMetaFrozen): ...
 
 
 class Customer3(ModelBaseFrozen):

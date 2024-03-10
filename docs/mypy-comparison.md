@@ -318,33 +318,9 @@ def func2(x: list[int], y: list[str] | int):
     reveal_type(v2) # pyright: "list[int | str]" ("list[list[str] | int]" is also a valid answer)
 ```
 
-#### Constraint Solver: Higher-order Functions
+### Value-Constrained Type Variables
 
-If a generic higher-order function is passed another generic callable as an argument, pyright is able to solve the type variables for both the target function and the argument. Mypy isn’t able to handle higher-order functions.
-
-```python
-def identity(val: T) -> T:
-    return val
-
-
-def higher_order1(cb: Callable[[S], T], arg: S) -> T:
-    return cb(arg)
-
-v1 = higher_order1(identity, 1.0)  # mypy generates an error
-reveal_type(v1)  # mypy: T, pyright: float
-
-
-def higher_order2(cb: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
-    return cb(*args, **kwargs)
-
-v2 = higher_order2(identity, "")  # mypy generates an error
-reveal_type(v2)  # mypy: T, pyright: str
-```
-
-
-### Constrained Type Variables
-
-When mypy analyzes a class or function that has in-scope constrained TypeVars, it analyzes the class or function multiple times, once for each constraint. This can produce multiple errors.
+When mypy analyzes a class or function that has in-scope value-constrained TypeVars, it analyzes the class or function multiple times, once for each constraint. This can produce multiple errors.
 
 ```python
 T = TypeVar("T", list[Any], set[Any])
@@ -354,7 +330,7 @@ def func(a: AnyStr, b: T):
     return a + b # Mypy reports 4 errors
 ```
 
-Pyright cannot use the same multi-pass technique as mypy in this case. It needs to produce a single type for any given identifier to support language server features. Pyright instead uses a mechanism called [conditional types](type-concepts-advanced.md#conditional-types-and-type-variables). This approach allows pyright to handle some constrained TypeVar use cases that mypy cannot, but there are conversely other use cases that mypy can handle and pyright cannot.
+Pyright cannot use the same multi-pass technique as mypy in this case. It needs to produce a single type for any given identifier to support language server features. Pyright instead uses a mechanism called [conditional types](type-concepts-advanced.md#conditional-types-and-type-variables). This approach allows pyright to handle some value-constrained TypeVar use cases that mypy cannot, but there are conversely other use cases that mypy can handle and pyright cannot.
 
 
 ### “Unknown” Type and Strict Mode

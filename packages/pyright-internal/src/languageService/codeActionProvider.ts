@@ -6,20 +6,16 @@
  * Handles 'code actions' requests from the client.
  */
 
-import { CancellationToken, CodeAction, CodeActionKind, Command } from 'vscode-languageserver';
+import { CancellationToken, CodeAction, CodeActionKind } from 'vscode-languageserver';
 import { getCodeActions as getRuffCodeActions } from '../../../pyright-ruff';
 
 import { Commands } from '../commands/commands';
 import { throwIfCancellationRequested } from '../common/cancellationUtils';
-import {
-    ActionKind,
-    AddMissingOptionalToParamAction,
-    CreateTypeStubFileAction,
-    RenameShadowedFileAction,
-} from '../common/diagnostic';
+import { createCommand } from '../common/commandUtils';
+import { ActionKind, CreateTypeStubFileAction, RenameShadowedFileAction } from '../common/diagnostic';
 import { FileEditActions } from '../common/editAction';
-import { convertPathToUri, getShortenedFileName } from '../common/pathUtils';
 import { Range } from '../common/textRange';
+import { Uri } from '../common/uri/uri';
 import { convertToWorkspaceEdit } from '../common/workspaceEditUtils';
 import { Localizer } from '../localization/localize';
 import { Workspace } from '../workspaceFactory';
@@ -35,7 +31,7 @@ export class CodeActionProvider {
     }
     static async getCodeActionsForPosition(
         workspace: Workspace,
-        filePath: string,
+        fileUri: Uri,
         range: Range,
         kinds: CodeActionKind[] | undefined,
         token: CancellationToken
@@ -50,11 +46,11 @@ export class CodeActionProvider {
         }
 
         if (!workspace.disableLanguageServices) {
-            const diags = await workspace.service.getDiagnosticsForRange(filePath, range, token);
+            const diags = await workspace.service.getDiagnosticsForRange(fileUri, range, token);
 
-            const buf = workspace.service.getSourceFile(filePath)?.getOpenFileContents() ?? null;
+            const buf = workspace.service.getSourceFile(fileUri)?.getOpenFileContents() ?? null;
             codeActions.push(
-                ...getRuffCodeActions(filePath, buf, diags).map((ca) => ({
+                ...getRuffCodeActions(fileUri, buf, diags).map((ca) => ({
                     ...ca,
                     title: `ruff: ${ca.title}`,
                 }))
@@ -72,12 +68,12 @@ export class CodeActionProvider {
                 if (action) {
                     const createTypeStubAction = CodeAction.create(
                         Localizer.CodeAction.createTypeStubFor().format({ moduleName: action.moduleName }),
-                        Command.create(
+                        createCommand(
                             Localizer.CodeAction.createTypeStub(),
                             Commands.createTypeStub,
-                            workspace.rootPath,
+                            workspace.rootUri.toString(),
                             action.moduleName,
-                            filePath
+                            fileUri.toString()
                         ),
                         CodeActionKind.QuickFix
                     );
@@ -85,30 +81,6 @@ export class CodeActionProvider {
                 }
             }
 
-            const addOptionalDiag = diags.find((d) => {
-                const actions = d.getActions();
-                return actions && actions.find((a) => a.action === Commands.addMissingOptionalToParam);
-            });
-
-            if (addOptionalDiag) {
-                const action = addOptionalDiag
-                    .getActions()!
-                    .find((a) => a.action === Commands.addMissingOptionalToParam) as AddMissingOptionalToParamAction;
-                if (action) {
-                    const fs = workspace.service.getImportResolver().fileSystem;
-                    const addMissingOptionalAction = CodeAction.create(
-                        Localizer.CodeAction.addOptionalToAnnotation(),
-                        Command.create(
-                            Localizer.CodeAction.addOptionalToAnnotation(),
-                            Commands.addMissingOptionalToParam,
-                            convertPathToUri(fs, filePath),
-                            action.offsetOfTypeNode
-                        ),
-                        CodeActionKind.QuickFix
-                    );
-                    codeActions.push(addMissingOptionalAction);
-                }
-            }
             const renameShadowed = diags.find((d) => {
                 const actions = d.getActions();
                 return actions && actions.find((a) => a.action === ActionKind.RenameShadowedFileAction);
@@ -119,21 +91,20 @@ export class CodeActionProvider {
                     .find((a) => a.action === ActionKind.RenameShadowedFileAction) as RenameShadowedFileAction;
                 if (action) {
                     const title = Localizer.CodeAction.renameShadowedFile().format({
-                        oldFile: getShortenedFileName(action.oldFile),
-                        newFile: getShortenedFileName(action.newFile),
+                        oldFile: action.oldUri.getShortenedFileName(),
+                        newFile: action.newUri.getShortenedFileName(),
                     });
-                    const fs = workspace.service.getImportResolver().fileSystem;
                     const editActions: FileEditActions = {
                         edits: [],
                         fileOperations: [
                             {
                                 kind: 'rename',
-                                oldFilePath: action.oldFile,
-                                newFilePath: action.newFile,
+                                oldFileUri: action.oldUri,
+                                newFileUri: action.newUri,
                             },
                         ],
                     };
-                    const workspaceEdit = convertToWorkspaceEdit(fs, editActions);
+                    const workspaceEdit = convertToWorkspaceEdit(workspace.service.fs, editActions);
                     const renameAction = CodeAction.create(title, workspaceEdit, CodeActionKind.QuickFix);
                     codeActions.push(renameAction);
                 }

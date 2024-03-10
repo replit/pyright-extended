@@ -70,6 +70,10 @@ export interface ParameterListDetails {
     paramSpec?: TypeVarType;
 }
 
+export function firstParametersExcludingSelf(type: FunctionType): FunctionParameter | undefined {
+    return type.details.parameters.find((p) => !(isTypeVar(p.type) && p.type.details.isSynthesizedSelf));
+}
+
 // Examines the input parameters within a function signature and creates a
 // "virtual list" of parameters, stripping out any markers and expanding
 // any *args with unpacked tuples.
@@ -110,10 +114,6 @@ export function getParameterListDetails(type: FunctionType): ParameterListDetail
 
             positionOnlyIndex = i + 1;
         }
-    }
-
-    if (positionOnlyIndex >= 0) {
-        result.firstPositionOrKeywordIndex = positionOnlyIndex;
     }
 
     for (let i = 0; i < positionOnlyIndex; i++) {
@@ -244,7 +244,7 @@ export function getParameterListDetails(type: FunctionType): ParameterListDetail
                 }
 
                 const typedDictType = paramType;
-                paramType.details.typedDictEntries.forEach((entry, name) => {
+                paramType.details.typedDictEntries.knownItems.forEach((entry, name) => {
                     const specializedParamType = partiallySpecializeType(entry.valueType, typedDictType);
 
                     addVirtualParameter(
@@ -259,6 +259,22 @@ export function getParameterListDetails(type: FunctionType): ParameterListDetail
                         specializedParamType
                     );
                 });
+
+                if (paramType.details.typedDictEntries.extraItems) {
+                    addVirtualParameter(
+                        {
+                            category: ParameterCategory.KwargsDict,
+                            name: 'kwargs',
+                            type: paramType.details.typedDictEntries.extraItems.valueType,
+                            hasDeclaredType: true,
+                            hasDefault: false,
+                        },
+                        index,
+                        paramType.details.typedDictEntries.extraItems.valueType
+                    );
+
+                    result.kwargsIndex = result.params.length - 1;
+                }
 
                 result.hasUnpackedTypedDict = true;
                 result.unpackedKwargsTypedDictType = paramType;
@@ -305,6 +321,11 @@ export function getParameterListDetails(type: FunctionType): ParameterListDetail
         ) {
             result.paramSpec = TypeVarType.cloneForParamSpecAccess(secondLastParam.type, undefined);
         }
+    }
+
+    result.firstPositionOrKeywordIndex = result.params.findIndex((p) => p.source !== ParameterSource.PositionOnly);
+    if (result.firstPositionOrKeywordIndex < 0) {
+        result.firstPositionOrKeywordIndex = result.params.length;
     }
 
     return result;

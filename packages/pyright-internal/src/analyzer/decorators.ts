@@ -10,7 +10,7 @@
 
 import { appendArray } from '../common/collectionUtils';
 import { DiagnosticRule } from '../common/diagnosticRules';
-import { Localizer } from '../localization/localize';
+import { LocMessage } from '../localization/localize';
 import {
     ArgumentCategory,
     CallNode,
@@ -34,7 +34,7 @@ import {
     validatePropertyMethod,
 } from './properties';
 import { EvaluatorFlags, FunctionArgument, TypeEvaluator } from './typeEvaluatorTypes';
-import { isPartlyUnknown, isProperty } from './typeUtils';
+import { isBuiltInDeprecatedType, isPartlyUnknown, isProperty } from './typeUtils';
 import {
     ClassType,
     ClassTypeFlags,
@@ -50,7 +50,7 @@ import {
     isOverloadedFunction,
 } from './types';
 
-interface FunctionDecoratorInfo {
+export interface FunctionDecoratorInfo {
     flags: FunctionTypeFlags;
     deprecationMessage: string | undefined;
 }
@@ -93,19 +93,8 @@ export function getFunctionInfoFromDecorators(
                     evaluatorFlags | EvaluatorFlags.CallBaseDefaults
                 ).type;
 
-                if (isFunction(decoratorCallType)) {
-                    if (decoratorCallType.details.builtInName === 'deprecated') {
-                        deprecationMessage = getCustomDeprecationMessage(decoratorNode);
-                    }
-                }
-
-                if (isOverloadedFunction(decoratorCallType)) {
-                    if (
-                        decoratorCallType.overloads.length > 0 &&
-                        decoratorCallType.overloads[0].details.builtInName === 'deprecated'
-                    ) {
-                        deprecationMessage = getCustomDeprecationMessage(decoratorNode);
-                    }
+                if (isBuiltInDeprecatedType(decoratorCallType)) {
+                    deprecationMessage = getCustomDeprecationMessage(decoratorNode);
                 }
             }
         }
@@ -124,14 +113,10 @@ export function getFunctionInfoFromDecorators(
                 flags |= FunctionTypeFlags.Overridden;
             } else if (decoratorType.details.builtInName === 'type_check_only') {
                 flags |= FunctionTypeFlags.TypeCheckOnly;
+            } else if (decoratorType.details.builtInName === 'no_type_check') {
+                flags |= FunctionTypeFlags.NoTypeCheck;
             } else if (decoratorType.details.builtInName === 'overload') {
                 flags |= FunctionTypeFlags.Overloaded;
-            } else if (decoratorType.details.builtInName === 'deprecated') {
-                deprecationMessage = getCustomDeprecationMessage(decoratorNode);
-            }
-        } else if (isOverloadedFunction(decoratorType)) {
-            if (decoratorType.overloads.length > 0 && decoratorType.overloads[0].details.builtInName === 'deprecated') {
-                deprecationMessage = getCustomDeprecationMessage(decoratorNode);
             }
         } else if (isInstantiableClass(decoratorType)) {
             if (ClassType.isBuiltIn(decoratorType, 'staticmethod')) {
@@ -143,6 +128,10 @@ export function getFunctionInfoFromDecorators(
                     flags |= FunctionTypeFlags.ClassMethod;
                 }
             }
+        }
+
+        if (isBuiltInDeprecatedType(decoratorType)) {
+            deprecationMessage = getCustomDeprecationMessage(decoratorNode);
         }
     }
 
@@ -199,19 +188,10 @@ export function applyFunctionDecorator(
                 );
                 return inputFunctionType;
             }
-
-            if (decoratorCallType.details.builtInName === 'deprecated') {
-                return inputFunctionType;
-            }
         }
 
-        if (isOverloadedFunction(decoratorCallType)) {
-            if (
-                decoratorCallType.overloads.length > 0 &&
-                decoratorCallType.overloads[0].details.builtInName === 'deprecated'
-            ) {
-                return inputFunctionType;
-            }
+        if (isBuiltInDeprecatedType(decoratorCallType)) {
+            return inputFunctionType;
         }
     }
 
@@ -219,10 +199,7 @@ export function applyFunctionDecorator(
 
     // Check for some built-in decorator types with known semantics.
     if (isFunction(decoratorType)) {
-        if (
-            decoratorType.details.builtInName === 'abstractmethod' ||
-            decoratorType.details.builtInName === 'deprecated'
-        ) {
+        if (decoratorType.details.builtInName === 'abstractmethod') {
             return inputFunctionType;
         }
 
@@ -257,10 +234,6 @@ export function applyFunctionDecorator(
                 }
             }
         }
-    } else if (isOverloadedFunction(decoratorType)) {
-        if (decoratorType.overloads.length > 0 && decoratorType.overloads[0].details.builtInName === 'deprecated') {
-            return inputFunctionType;
-        }
     } else if (isInstantiableClass(decoratorType)) {
         if (ClassType.isBuiltIn(decoratorType)) {
             switch (decoratorType.details.name) {
@@ -288,6 +261,10 @@ export function applyFunctionDecorator(
                     return inputFunctionType;
                 }
             }
+        }
+
+        if (isBuiltInDeprecatedType(decoratorType)) {
+            return inputFunctionType;
         }
 
         // Handle properties and subclasses of properties specially.
@@ -353,20 +330,12 @@ export function applyClassDecorator(
                     evaluator,
                     decoratorNode.expression
                 );
-            } else if (decoratorCallType.details.builtInName === 'deprecated') {
-                originalClassType.details.deprecatedMessage = getCustomDeprecationMessage(decoratorNode);
-                return inputClassType;
             }
         }
 
-        if (isOverloadedFunction(decoratorCallType)) {
-            if (
-                decoratorCallType.overloads.length > 0 &&
-                decoratorCallType.overloads[0].details.builtInName === 'deprecated'
-            ) {
-                originalClassType.details.deprecatedMessage = getCustomDeprecationMessage(decoratorNode);
-                return inputClassType;
-            }
+        if (isBuiltInDeprecatedType(decoratorCallType)) {
+            originalClassType.details.deprecatedMessage = getCustomDeprecationMessage(decoratorNode);
+            return inputClassType;
         }
     }
 
@@ -604,9 +573,8 @@ export function addOverloadsToFunctionType(evaluator: TypeEvaluator, node: Funct
 
             if (isPrevOverloadAbstract !== isCurrentOverloadAbstract) {
                 evaluator.addDiagnostic(
-                    getFileInfo(node).diagnosticRuleSet.reportGeneralTypeIssues,
-                    DiagnosticRule.reportGeneralTypeIssues,
-                    Localizer.Diagnostic.overloadAbstractMismatch().format({ name: node.name.value }),
+                    DiagnosticRule.reportInconsistentOverload,
+                    LocMessage.overloadAbstractMismatch().format({ name: node.name.value }),
                     node.name
                 );
             }
@@ -625,10 +593,10 @@ function getCustomDeprecationMessage(decorator: DecoratorNode): string {
         decorator.expression.nodeType === ParseNodeType.Call &&
         decorator.expression.arguments.length > 0 &&
         decorator.expression.arguments[0].argumentCategory === ArgumentCategory.Simple &&
-        decorator.expression.arguments[0].valueExpression.nodeType === ParseNodeType.StringList &&
-        decorator.expression.arguments[0].valueExpression.strings.length === 1
+        decorator.expression.arguments[0].valueExpression.nodeType === ParseNodeType.StringList
     ) {
-        const message = decorator.expression.arguments[0].valueExpression.strings[0].value;
+        const stringListNode = decorator.expression.arguments[0].valueExpression;
+        const message = stringListNode.strings.map((s) => s.value).join('');
         return convertDocStringToPlainText(message);
     }
 

@@ -2,10 +2,11 @@
 # variadic type variables. It is the same as variadicTypeVar4.py
 # except that it uses the * operator rather than Unpack.
 
-# pyright: reportMissingModuleSource=false
+# Enable experimental features to support Union[*Ts].
+# pyright: enableExperimentalFeatures=true
 
 from typing import Generic, NewType, Union
-from typing_extensions import TypeVarTuple
+from typing_extensions import TypeVarTuple  # pyright: ignore[reportMissingModuleSource]
 
 
 Shape = TypeVarTuple("Shape")
@@ -15,11 +16,9 @@ class Array(Generic[*Shape]):
     def __init__(self, *shape: *Shape):
         self.shape = shape
 
-    def __abs__(self) -> "Array[*Shape]":
-        ...
+    def __abs__(self) -> "Array[*Shape]": ...
 
-    def __add__(self, other: "Array[*Shape]") -> "Array[*Shape]":
-        ...
+    def __add__(self, other: "Array[*Shape]") -> "Array[*Shape]": ...
 
 
 Height = NewType("Height", int)
@@ -33,19 +32,17 @@ reveal_type(x + abs(x), expected_text="Array[Height, Width]")
 _Xs = TypeVarTuple("_Xs")
 
 
-def func1(a: tuple[*_Xs], b: tuple[*_Xs]) -> Union[*_Xs]:
-    ...
+def func1(a: tuple[*_Xs], b: tuple[*_Xs]) -> Union[*_Xs]: ...
 
 
-def func2(a: tuple[int, *_Xs], b: tuple[int, *_Xs]) -> Union[*_Xs]:
-    ...
+def func2(a: tuple[int, *_Xs], b: tuple[int, *_Xs]) -> Union[*_Xs]: ...
 
 
-def func3(p1: tuple[int], p2: tuple[int, str]):
-    # This should generate an error
+def func3(p1: tuple[int], p2: tuple[int, str], p3: tuple[int, int]):
+    # This should generate an error.
     v1 = func1(p1, p2)
 
-    # This should generate an error
+    # This should generate an error.
     v2 = func2(p1, p2)
 
     v3 = func2(p2, p2)
@@ -54,12 +51,14 @@ def func3(p1: tuple[int], p2: tuple[int, str]):
     v4 = func2((3, "hi"), p2)
     reveal_type(v4, expected_text="str")
 
-    v5 = func2((3, 3), p2)
-    reveal_type(v5, expected_text="str | int")
+    # This should generate an error.
+    func2((3, 3), p2)
+
+    v5 = func2((3, 3), p3)
+    reveal_type(v5, expected_text="int")
 
 
-def func4(a: int, *args: *_Xs, **kwargs: str) -> tuple[int, *_Xs]:
-    ...
+def func4(a: int, *args: *_Xs, **kwargs: str) -> tuple[int, *_Xs]: ...
 
 
 c1 = func4(4, 5.4, 6j, b="3", c="5")

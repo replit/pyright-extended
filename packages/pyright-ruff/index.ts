@@ -4,6 +4,7 @@ import { Range } from '../pyright-internal/src/common/textRange';
 import { CodeAction, CodeActionKind, TextEdit, uinteger } from 'vscode-languageserver';
 import { URI } from 'vscode-uri';
 import { spawnSync, SpawnSyncReturns } from 'node:child_process';
+import { Uri } from '../pyright-internal/src/common/uri/uri';
 
 interface Location {
     column: number;
@@ -87,11 +88,11 @@ function convertDiagnostic(diag: RuffDiagnostic): Diagnostic {
 }
 
 // see https://beta.ruff.rs/docs/rules/ for more info
-function _runRuff(fp: string, buf: string, ...extraArgs: string[]): SpawnSyncReturns<Buffer> {
+function _runRuff(fp: Uri, buf: string, ...extraArgs: string[]): SpawnSyncReturns<Buffer> {
     const args = [
         'check',
         '--stdin-filename',
-        fp,
+        fp.getPath(),
         '--quiet',
         '--output-format=json',
         '--force-exclude',
@@ -103,8 +104,8 @@ function _runRuff(fp: string, buf: string, ...extraArgs: string[]): SpawnSyncRet
     });
 }
 
-export function getRuffDiagnosticsFromBuffer(fp: string, buf: string): Diagnostic[] {
-    const outBuf = _runRuff(fp, buf);
+export function getRuffDiagnosticsFromBuffer(fileUri: Uri, buf: string): Diagnostic[] {
+    const outBuf = _runRuff(fileUri, buf);
     if (outBuf.error || outBuf.stderr.length > 0) {
         console.error(`Error running ruff: ${outBuf.stderr}`);
         return [];
@@ -115,8 +116,8 @@ export function getRuffDiagnosticsFromBuffer(fp: string, buf: string): Diagnosti
     return diags.map(convertDiagnostic);
 }
 
-function ruffFix(fp: string, buf: string): string {
-    const outBuf = _runRuff(fp, buf, '--fix-only');
+function ruffFix(fileUri: Uri, buf: string): string {
+    const outBuf = _runRuff(fileUri, buf, '--fix-only');
     if (outBuf.error || outBuf.stderr.length > 0) {
         console.error(`Error running ruff: ${outBuf.stderr}`);
         return buf; // do nothing if we fail
@@ -127,8 +128,8 @@ function ruffFix(fp: string, buf: string): string {
 }
 
 const ImportSortRegex = new RegExp(/^I\d{3}$/);
-export function getCodeActions(fp: string, buf: string | null, diags: Diagnostic[]): CodeAction[] {
-    const docUri = URI.file(fp).toString();
+export function getCodeActions(fileUri: Uri, buf: string | null, diags: Diagnostic[]): CodeAction[] {
+    const docUri = URI.file(fileUri.getPath()).toString();
     const constructChanges = (edits: TextEdit[]): Record<string, TextEdit[]> => {
         const changes: Record<string, TextEdit[]> = {};
         changes[docUri] = edits;
@@ -154,7 +155,7 @@ export function getCodeActions(fp: string, buf: string | null, diags: Diagnostic
 
     // fix all code action, only added if we have track this file as opened (buf exists)
     if (buf) {
-        const fixed = ruffFix(fp, buf);
+        const fixed = ruffFix(fileUri, buf);
         if (buf !== fixed) {
             const changes = constructChanges([
                 {

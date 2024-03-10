@@ -8,6 +8,7 @@ import assert from 'assert';
 import { CancellationToken } from 'vscode-languageserver';
 import { CompletionItemKind, MarkupKind } from 'vscode-languageserver-types';
 
+import { Uri } from '../common/uri/uri';
 import { CompletionOptions, CompletionProvider } from '../languageService/completionProvider';
 import { parseAndGetTestState } from './harness/fourslash/testState';
 
@@ -798,6 +799,7 @@ test('completion quote trigger', async () => {
     const state = parseAndGetTestState(code).state;
     const marker = state.getMarkerByName('marker');
     const filePath = marker.fileName;
+    const uri = Uri.file(filePath);
     const position = state.convertOffsetToPosition(filePath, marker.position);
 
     const options: CompletionOptions = {
@@ -809,8 +811,7 @@ test('completion quote trigger', async () => {
 
     const result = new CompletionProvider(
         state.program,
-        state.workspace.rootPath,
-        filePath,
+        uri,
         position,
         options,
         CancellationToken.None
@@ -836,6 +837,7 @@ test('completion quote trigger - middle', async () => {
     const state = parseAndGetTestState(code).state;
     const marker = state.getMarkerByName('marker');
     const filePath = marker.fileName;
+    const uri = Uri.file(filePath);
     const position = state.convertOffsetToPosition(filePath, marker.position);
 
     const options: CompletionOptions = {
@@ -847,8 +849,7 @@ test('completion quote trigger - middle', async () => {
 
     const result = new CompletionProvider(
         state.program,
-        state.workspace.rootPath,
-        filePath,
+        uri,
         position,
         options,
         CancellationToken.None
@@ -882,6 +883,7 @@ test('auto import sort text', async () => {
     while (state.workspace.service.test_program.analyze());
 
     const filePath = marker.fileName;
+    const uri = Uri.file(filePath);
     const position = state.convertOffsetToPosition(filePath, marker.position);
 
     const options: CompletionOptions = {
@@ -892,8 +894,7 @@ test('auto import sort text', async () => {
 
     const result = new CompletionProvider(
         state.program,
-        state.workspace.rootPath,
-        filePath,
+        uri,
         position,
         options,
         CancellationToken.None
@@ -1240,6 +1241,32 @@ test('TypeDict literal values', async () => {
                     label: '"b"',
                     kind: CompletionItemKind.Constant,
                     textEdit: { range: state.getPositionRange('marker'), newText: '"b"' },
+                },
+            ],
+        },
+    });
+});
+
+test('typed dict key constructor completion', async () => {
+    const code = `
+// @filename: test.py
+//// from typing import TypedDict
+//// 
+//// class Movie(TypedDict):
+////    key1: str
+//// 
+//// a = Movie(k[|"/*marker*/"|])
+//// 
+    `;
+
+    const state = parseAndGetTestState(code).state;
+
+    await state.verifyCompletion('included', MarkupKind.Markdown, {
+        marker: {
+            completions: [
+                {
+                    kind: CompletionItemKind.Variable,
+                    label: 'key1=',
                 },
             ],
         },

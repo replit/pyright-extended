@@ -1,7 +1,9 @@
 # This sample tests error cases for calls to the TypeAliasType constructor.
 
 from typing import TypeVar
-from typing_extensions import TypeAliasType
+from typing_extensions import (  # pyright: ignore[reportMissingModuleSource]
+    TypeAliasType,
+)
 
 # This should generate an error because arguments are missing.
 TA1 = TypeAliasType()
@@ -43,3 +45,11 @@ my_tuple = (S, T)
 
 # This should generate two errors because type_params is not a tuple.
 TA10 = TypeAliasType("TA10", int, type_params=my_tuple)
+print(TA10.__value__)
+
+
+TA11 = TypeAliasType("TA11", int)
+print(TA11.__value__)
+
+type TA12 = int | str
+print(TA12.__value__)

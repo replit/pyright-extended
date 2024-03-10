@@ -6,6 +6,8 @@ The Pyright language server honors the following settings.
 
 **pyright.disableOrganizeImports** [boolean]: Disables the “Organize Imports” command. This is useful if you are using another extension that provides similar functionality and you don’t want the two extensions to fight each other.
 
+**pyright.disableTaggedHints** [boolean]: Disables the use of hint diagnostics with special tags to tell the client to display text ranges in a "grayed out" manner (to indicate unreachable code or unreferenced symbols) or in a "strike through" manner (to indicate use of a deprecated feature).
+
 **pyright.openFilesOnly** [boolean]: Determines whether pyright analyzes (and reports errors for) all files in the workspace, as indicated by the config file. If this option is set to true, pyright analyzes only open files. This setting is deprecated in favor of python.analysis.diagnosticMode. It will be removed at a future time.
 
 **pyright.useLibraryCodeForTypes** [boolean]: This setting is deprecated in favor of python.analysis.useLibraryCodeForTypes. It will be removed at a future time.
@@ -30,7 +32,7 @@ The Pyright language server honors the following settings.
 
 **python.analysis.stubPath** [path]: Path to directory containing custom type stub files.
 
-**python.analysis.typeCheckingMode** ["off", "basic", "strict"]: Determines the default type-checking level used by pyright. This can be overridden in the configuration file. (Note: This setting used to be called "pyright.typeCheckingMode". The old name is deprecated but is still currently honored.)
+**python.analysis.typeCheckingMode** ["off", "basic", "standard", "strict"]: Determines the default type-checking level used by pyright. This can be overridden in the configuration file. (Note: This setting used to be called "pyright.typeCheckingMode". The old name is deprecated but is still currently honored.)
 
 **python.analysis.typeshedPaths** [array of paths]: Paths to look for typeshed modules. Pyright currently honors only the first path in the array.
 

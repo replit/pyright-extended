@@ -1,6 +1,7 @@
 # This sample tests the type checker's handling of Enum.
 
 from enum import Enum, EnumMeta, IntEnum
+from typing import Self
 
 
 TestEnum1 = Enum("TestEnum1", "   A   B, , ,C , \t D\t")
@@ -57,6 +58,7 @@ b = TestEnum3.B
 # a valid member.
 z = TestEnum3.Z
 
+reveal_type(TestEnum3["A"], expected_text="TestEnum3")
 
 # Test that enum classes are iterable.
 list1 = list(TestEnum3)
@@ -190,3 +192,51 @@ class TestEnum12(Enum):
 reveal_type(TestEnum12.a, expected_text="Literal[TestEnum12.a]")
 reveal_type(TestEnum12.b, expected_text="() -> None")
 reveal_type(TestEnum12.c, expected_text="() -> None")
+
+
+class TestEnum13(metaclass=CustomEnumMeta1):
+    pass
+
+
+TestEnum14 = TestEnum13("TestEnum14", "A, B, C")
+reveal_type(TestEnum14.A, expected_text="Literal[TestEnum14.A]")
+
+
+class TestEnum15(Enum):
+    _value_: str
+    A = 1
+    B = 2
+
+    def __init__(self, value: int):
+        self._value_ = str(value)
+
+
+te15_A = TestEnum15.A
+reveal_type(te15_A, expected_text="Literal[TestEnum15.A]")
+reveal_type(te15_A.value, expected_text="str")
+reveal_type(te15_A._value_, expected_text="str")
+
+
+class TestEnum16(Enum):
+    A = 1
+    B = 2
+    C = 3
+
+    D = C  # Alias for C
+
+
+reveal_type(TestEnum16.D, expected_text="Literal[TestEnum16.C]")
+reveal_type(TestEnum16.D.value, expected_text="Literal[3]")
+
+
+class TestEnum17(IntEnum):
+    def __new__(cls, val: int, doc: str) -> Self:
+        obj = int.__new__(cls, val)
+        obj._value_ = val
+        obj.__doc__ = doc
+        return obj
+
+
+class TestEnum18(TestEnum17):
+    A = (1, "A")
+    B = (2, "B")

@@ -57,6 +57,7 @@ import {
     TypeVarScopeId,
     TypeVarScopeType,
     TypeVarType,
+    UnboundType,
     UnionType,
     UnknownType,
     Variance,
@@ -135,6 +136,10 @@ export const enum MemberAccessFlags {
     // (__getattr__, etc.) may provide the missing attribute type.
     // This disables this check.
     SkipAttributeAccessOverride = 1 << 9,
+
+    // Report an error if a symbol is an instance variable whose
+    // type is parameterized by a class TypeVar.
+    DisallowGenericInstanceVariableAccess = 1 << 10,
 }
 
 export const enum ClassIteratorFlags {
@@ -180,48 +185,65 @@ export const enum AssignTypeFlags {
     // whether overload signatures overlap.
     OverloadOverlapCheck = 1 << 4,
 
+    // When used in conjunction with OverloadOverlapCheck, look
+    // for partial overlaps. For example, `int | list` overlaps
+    // partially with `int | str`.
+    PartialOverloadOverlapCheck = 1 << 5,
+
     // For function types, skip the return type check.
-    SkipFunctionReturnTypeCheck = 1 << 5,
+    SkipFunctionReturnTypeCheck = 1 << 6,
 
     // Allow bool values to be assigned to TypeGuard[x] types.
-    AllowBoolTypeGuard = 1 << 6,
+    AllowBoolTypeGuard = 1 << 7,
 
     // In most cases, literals are stripped when assigning to a
     // type variable. This overrides the standard behavior.
-    RetainLiteralsForTypeVar = 1 << 7,
+    RetainLiteralsForTypeVar = 1 << 8,
 
     // When validating the type of a self or cls parameter, allow
     // a type mismatch. This is used in overload consistency validation
     // because overloads can provide explicit type annotations for self
     // or cls.
-    SkipSelfClsTypeCheck = 1 << 8,
+    SkipSelfClsTypeCheck = 1 << 9,
 
     // If an assignment is made to a TypeVar that is out of scope,
     // do not generate an error. This is used for populating the
     // typeVarContext when handling contravariant parameters in a callable.
-    IgnoreTypeVarScope = 1 << 9,
+    IgnoreTypeVarScope = 1 << 10,
 
     // We're initially populating the typeVarContext with an expected type,
     // so TypeVars should match the specified type exactly rather than
     // employing narrowing or widening, and don't strip literals.
-    PopulatingExpectedType = 1 << 10,
+    PopulatingExpectedType = 1 << 11,
+
+    // Used with PopulatingExpectedType, this flag indicates that a TypeVar
+    // constraint that is Unknown should be ignored.
+    SkipPopulateUnknownExpectedType = 1 << 12,
 
     // Normally, when a class type is assigned to a TypeVar and that class
     // hasn't previously been specialized, it will be specialized with
     // default type arguments (typically "Unknown"). This flag skips
     // this step.
-    AllowUnspecifiedTypeArguments = 1 << 11,
+    AllowUnspecifiedTypeArguments = 1 << 13,
 
     // PEP 544 says that if the dest type is a type[Proto] class,
     // the source must be a "concrete" (non-protocol) class. This
     // flag skips this check.
-    IgnoreProtocolAssignmentCheck = 1 << 12,
+    IgnoreProtocolAssignmentCheck = 1 << 14,
+
+    // Normally all special form classes are incompatible with type[T],
+    // but a few of them are allowed in the context of an isinstance
+    // or issubclass call.
+    AllowIsinstanceSpecialForms = 1 << 15,
+
+    // When comparing two methods, skip the type check for the "self" or "cls"
+    // parameters. This is used for variance inference and validation.
+    IgnoreSelfClsParamCompatibility = 1 << 16,
 }
 
 export interface ApplyTypeVarOptions {
     unknownIfNotFound?: boolean;
     unknownExemptTypeVars?: TypeVarType[];
-    useUnknownOverDefault?: boolean;
     useNarrowBoundOnly?: boolean;
     eliminateUnsolvedInUnions?: boolean;
     typeClassType?: Type;
@@ -351,13 +373,35 @@ export function isTypeVarSame(type1: TypeVarType, type2: Type) {
         if (!isTypeSame(type1, subtype)) {
             const conditions = getTypeCondition(subtype);
 
-            if (!conditions || !conditions.some((condition) => condition.typeVarName === type1.nameWithScope)) {
+            if (
+                !conditions ||
+                !conditions.some((condition) => condition.typeVar.nameWithScope === type1.nameWithScope)
+            ) {
                 isCompatible = false;
             }
         }
     });
 
     return isCompatible;
+}
+
+// The `deprecated` type has been defined as a function, an overloaded function,
+// and a class in various versions of typeshed. This function checks for all of
+// these variants to determine whether the type is the built-in `deprecated` type.
+export function isBuiltInDeprecatedType(type: Type) {
+    if (isFunction(type)) {
+        return type.details.builtInName === 'deprecated';
+    }
+
+    if (isOverloadedFunction(type)) {
+        return type.overloads.length > 0 && type.overloads[0].details.builtInName === 'deprecated';
+    }
+
+    if (isInstantiableClass(type)) {
+        return ClassType.isBuiltIn(type, 'deprecated');
+    }
+
+    return false;
 }
 
 export function makeInferenceContext(
@@ -461,6 +505,12 @@ export function mapSignatures(
         }
     });
 
+    // Add the unmodified implementation if it's present.
+    const implementation = OverloadedFunctionType.getImplementation(type);
+    if (implementation) {
+        newSignatures.push(implementation);
+    }
+
     if (!changeMade) {
         return type;
     }
@@ -498,12 +548,16 @@ export function cleanIncompleteUnknown(type: Type, recursionCount = 0): Type {
             let typeChanged = false;
 
             if (subtype.tupleTypeArguments) {
-                const updatedTupleTypeArgs = subtype.tupleTypeArguments.map((tupleTypeArg) => {
+                const updatedTupleTypeArgs: TupleTypeArgument[] = subtype.tupleTypeArguments.map((tupleTypeArg) => {
                     const newTypeArg = cleanIncompleteUnknown(tupleTypeArg.type, recursionCount);
                     if (newTypeArg !== tupleTypeArg.type) {
                         typeChanged = true;
                     }
-                    return { type: newTypeArg, isUnbounded: tupleTypeArg.isUnbounded };
+                    return {
+                        type: newTypeArg,
+                        isUnbounded: tupleTypeArg.isUnbounded,
+                        isOptional: tupleTypeArg.isOptional,
+                    };
                 });
 
                 if (typeChanged) {
@@ -727,6 +781,26 @@ export function doForEachSubtype(
     }
 }
 
+export function someSubtypes(type: Type, callback: (type: Type) => boolean): boolean {
+    if (isUnion(type)) {
+        return type.subtypes.some((subtype) => {
+            return callback(subtype);
+        });
+    } else {
+        return callback(type);
+    }
+}
+
+export function allSubtypes(type: Type, callback: (type: Type) => boolean): boolean {
+    if (isUnion(type)) {
+        return type.subtypes.every((subtype) => {
+            callback(subtype);
+        });
+    } else {
+        return callback(type);
+    }
+}
+
 export function doForEachSignature(
     type: FunctionType | OverloadedFunctionType,
     callback: (type: FunctionType, index: number) => void
@@ -832,9 +906,20 @@ export function getFullNameOfType(type: Type): string | undefined {
     return undefined;
 }
 
-export function addConditionToType(type: Type, condition: TypeCondition[] | undefined): Type {
+export function addConditionToType(
+    type: Type,
+    condition: TypeCondition[] | undefined,
+    skipSelfCondition = false
+): Type {
     if (!condition) {
         return type;
+    }
+
+    if (skipSelfCondition) {
+        condition = condition.filter((c) => !c.typeVar.details.isSynthesizedSelf);
+        if (condition.length === 0) {
+            return type;
+        }
     }
 
     switch (type.category) {
@@ -940,6 +1025,8 @@ export function transformPossibleRecursiveTypeAlias(type: Type | undefined): Typ
                     newType,
                     type.typeAliasInfo.name,
                     type.typeAliasInfo.fullName,
+                    type.typeAliasInfo.moduleName,
+                    type.typeAliasInfo.fileUri,
                     type.typeAliasInfo.typeVarScopeId,
                     type.typeAliasInfo.isPep695Syntax,
                     type.typeAliasInfo.typeParameters,
@@ -1042,6 +1129,14 @@ export function getUnknownTypeForParamSpec(): FunctionType {
         FunctionTypeFlags.ParamSpecValue | FunctionTypeFlags.SkipArgsKwargsCompatibilityCheck
     );
     FunctionType.addDefaultParameters(newFunction);
+    return newFunction;
+}
+
+// Returns the equivalent of "Callable[..., Unknown]".
+export function getUnknownTypeForCallable(): FunctionType {
+    const newFunction = FunctionType.createSynthesizedInstance('', FunctionTypeFlags.SkipArgsKwargsCompatibilityCheck);
+    FunctionType.addDefaultParameters(newFunction);
+    newFunction.details.declaredReturnType = UnknownType.create();
     return newFunction;
 }
 
@@ -1313,7 +1408,9 @@ export function populateTypeVarContextForSelfType(
         return subtype;
     });
 
-    typeVarContext.setTypeVarType(synthesizedSelfTypeVar, selfInstance, selfWithoutLiteral);
+    if (!isTypeSame(synthesizedSelfTypeVar, selfWithoutLiteral)) {
+        typeVarContext.setTypeVarType(synthesizedSelfTypeVar, selfInstance, selfWithoutLiteral);
+    }
 }
 
 // Looks for duplicate function types within the type and ensures that
@@ -1380,7 +1477,11 @@ export function applySourceContextTypeVarsToSignature(
             destSignature.setTupleTypeVar(
                 entry.typeVar,
                 entry.tupleTypes.map((arg) => {
-                    return { isUnbounded: arg.isUnbounded, type: applySolvedTypeVars(arg.type, srcContext) };
+                    return {
+                        type: applySolvedTypeVars(arg.type, srcContext),
+                        isUnbounded: arg.isUnbounded,
+                        isOptional: arg.isOptional,
+                    };
                 })
             );
         }
@@ -1417,8 +1518,9 @@ export function applyInScopePlaceholders(typeVarContext: TypeVarContext) {
                         entry.typeVar,
                         entry.tupleTypes.map((arg) => {
                             return {
-                                isUnbounded: arg.isUnbounded,
                                 type: applyInScopePlaceholdersToType(arg.type, signature),
+                                isUnbounded: arg.isUnbounded,
+                                isOptional: arg.isOptional,
                             };
                         })
                     );
@@ -1564,6 +1666,23 @@ export function lookUpClassMember(
     flags = MemberAccessFlags.Default,
     skipMroClass?: ClassType | undefined
 ): ClassMember | undefined {
+    // Look in the metaclass first.
+    const metaclass = classType.details.effectiveMetaclass;
+
+    // Skip the "type" class as an optimization because it is known to not
+    // define any instance variables, and it's by far the most common metaclass.
+    if (metaclass && isClass(metaclass) && !ClassType.isBuiltIn(metaclass, 'type')) {
+        const metaMemberItr = getClassMemberIterator(metaclass, memberName, MemberAccessFlags.SkipClassMembers);
+        const metaMember = metaMemberItr.next()?.value;
+
+        if (metaMember) {
+            // Set the isClassMember to true because it's a class member from the
+            // perspective of the classType.
+            metaMember.isClassMember = true;
+            return metaMember;
+        }
+    }
+
     const memberItr = getClassMemberIterator(classType, memberName, flags, skipMroClass);
 
     return memberItr.next()?.value;
@@ -2199,7 +2318,7 @@ export function synthesizeTypeVarForSelfCls(classType: ClassType, isClsParam: bo
         classType,
         ClassType.getTypeParameters(classType),
         /* isTypeArgumentExplicit */ false,
-        /* includeSubclasses */ true
+        /* includeSubclasses */ !!classType.includeSubclasses
     );
 
     selfType.details.boundType = ClassType.cloneAsInstance(boundType);
@@ -2337,6 +2456,18 @@ export function convertToInstance(type: Type, includeSubclasses = true): Type {
             case TypeCategory.Any: {
                 return AnyType.convertToInstance(subtype);
             }
+
+            case TypeCategory.Unknown: {
+                return UnknownType.convertToInstance(subtype);
+            }
+
+            case TypeCategory.Never: {
+                return NeverType.convertToInstance(subtype);
+            }
+
+            case TypeCategory.Unbound: {
+                return UnboundType.convertToInstance(subtype);
+            }
         }
 
         return subtype;
@@ -2348,6 +2479,8 @@ export function convertToInstance(type: Type, includeSubclasses = true): Type {
             result,
             type.typeAliasInfo.name,
             type.typeAliasInfo.fullName,
+            type.typeAliasInfo.moduleName,
+            type.typeAliasInfo.fileUri,
             type.typeAliasInfo.typeVarScopeId,
             type.typeAliasInfo.isPep695Syntax,
             type.typeAliasInfo.typeParameters,
@@ -2396,6 +2529,8 @@ export function convertToInstantiable(type: Type, includeSubclasses = true): Typ
             result,
             type.typeAliasInfo.name,
             type.typeAliasInfo.fullName,
+            type.typeAliasInfo.moduleName,
+            type.typeAliasInfo.fileUri,
             type.typeAliasInfo.typeVarScopeId,
             type.typeAliasInfo.isPep695Syntax,
             type.typeAliasInfo.typeParameters,
@@ -2544,7 +2679,7 @@ export function containsAnyOrUnknown(type: Type, recurse: boolean): AnyType | Un
 // This function does not use the TypeWalker because it is called very frequently,
 // and allocating a memory walker object for every call significantly increases
 // peak memory usage.
-export function isPartlyUnknown(type: Type, allowUnknownTypeArgsForClasses = false, recursionCount = 0): boolean {
+export function isPartlyUnknown(type: Type, recursionCount = 0): boolean {
     if (recursionCount > maxTypeRecursionCount) {
         return false;
     }
@@ -2557,34 +2692,30 @@ export function isPartlyUnknown(type: Type, allowUnknownTypeArgsForClasses = fal
     // If this is a generic type alias, see if any of its type arguments
     // are either unspecified or are partially known.
     if (type.typeAliasInfo?.typeArguments) {
-        if (
-            type.typeAliasInfo.typeArguments.some((typeArg) =>
-                isPartlyUnknown(typeArg, allowUnknownTypeArgsForClasses, recursionCount)
-            )
-        ) {
+        if (type.typeAliasInfo.typeArguments.some((typeArg) => isPartlyUnknown(typeArg, recursionCount))) {
             return true;
         }
     }
 
     // See if a union contains an unknown type.
     if (isUnion(type)) {
-        return (
-            findSubtype(type, (subtype) => isPartlyUnknown(subtype, allowUnknownTypeArgsForClasses, recursionCount)) !==
-            undefined
-        );
+        return findSubtype(type, (subtype) => isPartlyUnknown(subtype, recursionCount)) !== undefined;
     }
 
     // See if an object or class has an unknown type argument.
     if (isClass(type)) {
-        if (TypeBase.isInstance(type)) {
-            allowUnknownTypeArgsForClasses = false;
+        // If this is a reference to the class itself, as opposed to a reference
+        // to a type that represents the class and its subclasses, don't flag
+        // the type as partially unknown.
+        if (!type.includeSubclasses) {
+            return false;
         }
 
-        if (!allowUnknownTypeArgsForClasses && !ClassType.isPseudoGenericClass(type)) {
+        if (!ClassType.isPseudoGenericClass(type)) {
             const typeArgs = type.tupleTypeArguments?.map((t) => t.type) || type.typeArguments;
             if (typeArgs) {
                 for (const argType of typeArgs) {
-                    if (isPartlyUnknown(argType, allowUnknownTypeArgsForClasses, recursionCount)) {
+                    if (isPartlyUnknown(argType, recursionCount)) {
                         return true;
                     }
                 }
@@ -2597,7 +2728,7 @@ export function isPartlyUnknown(type: Type, allowUnknownTypeArgsForClasses = fal
     // See if a function has an unknown type.
     if (isOverloadedFunction(type)) {
         return OverloadedFunctionType.getOverloads(type).some((overload) => {
-            return isPartlyUnknown(overload, /* allowUnknownTypeArgsForClasses */ false, recursionCount);
+            return isPartlyUnknown(overload, recursionCount);
         });
     }
 
@@ -2606,7 +2737,7 @@ export function isPartlyUnknown(type: Type, allowUnknownTypeArgsForClasses = fal
             // Ignore parameters such as "*" that have no name.
             if (type.details.parameters[i].name) {
                 const paramType = FunctionType.getEffectiveParameterType(type, i);
-                if (isPartlyUnknown(paramType, /* allowUnknownTypeArgsForClasses */ false, recursionCount)) {
+                if (isPartlyUnknown(paramType, recursionCount)) {
                     return true;
                 }
             }
@@ -2615,7 +2746,7 @@ export function isPartlyUnknown(type: Type, allowUnknownTypeArgsForClasses = fal
         if (
             type.details.declaredReturnType &&
             !FunctionType.isParamSpecValue(type) &&
-            isPartlyUnknown(type.details.declaredReturnType, /* allowUnknownTypeArgsForClasses */ false, recursionCount)
+            isPartlyUnknown(type.details.declaredReturnType, recursionCount)
         ) {
             return true;
         }
@@ -2709,7 +2840,7 @@ export function specializeTupleClass(
     isTypeArgumentExplicit = true,
     isUnpackedTuple = false
 ): ClassType {
-    let combinedTupleType = combineTypes(
+    const combinedTupleType = combineTypes(
         typeArgs.map((t) => {
             if (isTypeVar(t.type) && isUnpackedVariadicTypeVar(t.type)) {
                 // Treat the unpacked TypeVarTuple as a union.
@@ -2719,11 +2850,6 @@ export function specializeTupleClass(
             return t.type;
         })
     );
-
-    // An empty tuple has an effective type of Any.
-    if (isNever(combinedTupleType)) {
-        combinedTupleType = AnyType.create();
-    }
 
     const clonedClassType = ClassType.cloneForSpecialization(
         classType,
@@ -2844,6 +2970,7 @@ export function requiresTypeArguments(classType: ClassType) {
             'Literal',
             'Annotated',
             'TypeGuard',
+            'TypeIs',
         ];
 
         if (specialClasses.some((t) => t === (classType.aliasName || classType.details.name))) {
@@ -2883,6 +3010,11 @@ export function requiresSpecialization(
 }
 
 function _requiresSpecialization(type: Type, options?: RequiresSpecializationOptions, recursionCount = 0): boolean {
+    // If the type is conditioned on a TypeVar, it may need to be specialized.
+    if (type.condition) {
+        return true;
+    }
+
     switch (type.category) {
         case TypeCategory.Class: {
             if (ClassType.isPseudoGenericClass(type) && options?.ignorePseudoGeneric) {
@@ -3323,6 +3455,12 @@ class TypeVarTransformer {
 
         type = this.transformGenericTypeAlias(type, recursionCount);
 
+        // If the type is conditioned on a type variable, see if the condition
+        // still applies.
+        if (type.condition) {
+            type = this.transformConditionalType(type, recursionCount);
+        }
+
         // Shortcut the operation if possible.
         if (!requiresSpecialization(type)) {
             return type;
@@ -3359,6 +3497,8 @@ class TypeVarTransformer {
                         type,
                         type.typeAliasInfo.name,
                         type.typeAliasInfo.fullName,
+                        type.typeAliasInfo.moduleName,
+                        type.typeAliasInfo.fileUri,
                         type.typeAliasInfo.typeVarScopeId,
                         type.typeAliasInfo.isPep695Syntax,
                         type.typeAliasInfo.typeParameters,
@@ -3541,6 +3681,8 @@ class TypeVarTransformer {
                   type,
                   type.typeAliasInfo.name,
                   type.typeAliasInfo.fullName,
+                  type.typeAliasInfo.moduleName,
+                  type.typeAliasInfo.fileUri,
                   type.typeAliasInfo.typeVarScopeId,
                   type.typeAliasInfo.isPep695Syntax,
                   type.typeAliasInfo.typeParameters,
@@ -3549,11 +3691,20 @@ class TypeVarTransformer {
             : type;
     }
 
+    transformConditionalType(type: Type, recursionCount: number): Type {
+        // By default, do not perform any transform.
+        return type;
+    }
+
     transformTypeVarsInClassType(classType: ClassType, recursionCount: number): ClassType {
         const typeParams = ClassType.getTypeParameters(classType);
 
         // Handle the common case where the class has no type parameters.
-        if (typeParams.length === 0 && !ClassType.isSpecialBuiltIn(classType)) {
+        if (
+            typeParams.length === 0 &&
+            !ClassType.isSpecialBuiltIn(classType) &&
+            !ClassType.isBuiltIn(classType, 'type')
+        ) {
             return classType;
         }
 
@@ -3595,7 +3746,11 @@ class TypeVarTransformer {
                     ) {
                         appendArray(newTupleTypeArgs!, newTypeArgType.tupleTypeArguments);
                     } else {
-                        newTupleTypeArgs!.push({ type: newTypeArgType, isUnbounded: oldTypeArgType.isUnbounded });
+                        newTupleTypeArgs!.push({
+                            type: newTypeArgType,
+                            isUnbounded: oldTypeArgType.isUnbounded,
+                            isOptional: oldTypeArgType.isOptional,
+                        });
                     }
                 });
             } else if (typeParams.length > 0) {
@@ -3875,10 +4030,7 @@ class TypeVarTransformer {
                     // Insert a keyword-only separator parameter if we previously
                     // unpacked a variadic TypeVar.
                     if (param.category === ParameterCategory.Simple && param.name && insertKeywordOnlySeparator) {
-                        FunctionType.addParameter(newFunctionType, {
-                            category: ParameterCategory.ArgsList,
-                            type: UnknownType.create(),
-                        });
+                        FunctionType.addKeywordOnlyParameterSeparator(newFunctionType);
                         insertKeywordOnlySeparator = false;
                     }
 
@@ -4068,7 +4220,13 @@ class ApplySolvedTypeVarsTransformer extends TypeVarTransformer {
                     // now with default type arguments.
                     if (this._options.unknownIfNotFound) {
                         replacement = mapSubtypes(replacement, (subtype) => {
-                            if (isClassInstance(subtype) && !subtype.includeSubclasses) {
+                            if (isClassInstance(subtype)) {
+                                // If the includeSubclasses wasn't set, force it to be set by
+                                // converting to/from an instantiable.
+                                if (!subtype.includeSubclasses) {
+                                    subtype = ClassType.cloneAsInstance(ClassType.cloneAsInstantiable(subtype));
+                                }
+
                                 return specializeWithDefaultTypeArgs(subtype);
                             }
 
@@ -4105,7 +4263,7 @@ class ApplySolvedTypeVarsTransformer extends TypeVarTransformer {
 
             if (useDefaultOrUnknown) {
                 // Use the default value if there is one.
-                if (typeVar.details.defaultType && !this._options.useUnknownOverDefault) {
+                if (typeVar.details.defaultType) {
                     return this._solveDefaultType(typeVar.details.defaultType, recursionCount);
                 }
 
@@ -4242,6 +4400,41 @@ class ApplySolvedTypeVarsTransformer extends TypeVarTransformer {
         }
 
         return undefined;
+    }
+
+    override transformConditionalType(type: Type, recursionCount: number): Type {
+        if (!type.condition) {
+            return type;
+        }
+
+        const signatureContext = this._typeVarContext.getSignatureContext(
+            this._activeTypeVarSignatureContextIndex ?? 0
+        );
+
+        for (const condition of type.condition) {
+            // This doesn't apply to bound type variables.
+            if (condition.typeVar.details.constraints.length === 0) {
+                continue;
+            }
+
+            const typeVarEntry = signatureContext.getTypeVar(condition.typeVar);
+            if (!typeVarEntry || condition.constraintIndex >= typeVarEntry.typeVar.details.constraints.length) {
+                continue;
+            }
+
+            const value = signatureContext.getTypeVarType(typeVarEntry.typeVar);
+            if (!value) {
+                continue;
+            }
+
+            const constraintType = typeVarEntry.typeVar.details.constraints[condition.constraintIndex];
+
+            // If this violates the constraint, substitute a Never type.
+            if (!isTypeSame(constraintType, value)) {
+                return NeverType.createNever();
+            }
+        }
+        return type;
     }
 
     override doForEachSignatureContext(callback: () => FunctionType): FunctionType | OverloadedFunctionType {
