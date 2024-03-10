@@ -65,7 +65,6 @@ export interface ModuleNameAndType {
 }
 
 export interface ModuleImportInfo extends ModuleNameAndType {
-    isTypeshedFile: boolean;
     isThirdPartyPyTypedPresent: boolean;
 }
 
@@ -314,18 +313,10 @@ export class ImportResolver {
     // Returns the module name (of the form X.Y.Z) that needs to be imported
     // from the current context to access the module with the specified file path.
     // In a sense, it's performing the inverse of resolveImport.
-    getModuleNameForImport(
-        filePath: string,
-        execEnv: ExecutionEnvironment,
-        allowInvalidModuleName = false,
-        detectPyTyped = false
-    ) {
+    getModuleNameForImport(filePath: string, execEnv: ExecutionEnvironment, allowInvalidModuleName = false) {
         // Cache results of the reverse of resolveImport as we cache resolveImport.
         const cache = getOrAdd(this._cachedModuleNameResults, execEnv.root, () => new Map<string, ModuleImportInfo>());
-        const key = `${allowInvalidModuleName}.${detectPyTyped}.${filePath}`;
-        return getOrAdd(cache, key, () =>
-            this._getModuleNameForImport(filePath, execEnv, allowInvalidModuleName, detectPyTyped)
-        );
+        return getOrAdd(cache, filePath, () => this._getModuleNameForImport(filePath, execEnv, allowInvalidModuleName));
     }
 
     getTypeshedStdLibPath(execEnv: ExecutionEnvironment) {
@@ -1058,14 +1049,12 @@ export class ImportResolver {
     private _getModuleNameForImport(
         filePath: string,
         execEnv: ExecutionEnvironment,
-        allowInvalidModuleName: boolean,
-        detectPyTyped: boolean
+        allowInvalidModuleName: boolean
     ): ModuleImportInfo {
         let moduleName: string | undefined;
         let importType = ImportType.BuiltIn;
         let isLocalTypingsFile = false;
         let isThirdPartyPyTypedPresent = false;
-        let isTypeshedFile = false;
 
         const importFailureInfo: string[] = [];
 
@@ -1102,7 +1091,6 @@ export class ImportResolver {
                     return {
                         moduleName,
                         importType,
-                        isTypeshedFile: true,
                         isLocalTypingsFile,
                         isThirdPartyPyTypedPresent,
                     };
@@ -1183,7 +1171,6 @@ export class ImportResolver {
             if (!moduleName || (candidateModuleName && candidateModuleName.length < moduleName.length)) {
                 moduleName = candidateModuleName;
                 importType = ImportType.ThirdParty;
-                isTypeshedFile = true;
             }
         }
 
@@ -1196,7 +1183,6 @@ export class ImportResolver {
             if (!moduleName || (candidateModuleName && candidateModuleName.length < moduleName.length)) {
                 moduleName = candidateModuleName;
                 importType = ImportType.ThirdParty;
-                isTypeshedFile = true;
             }
         }
 
@@ -1216,13 +1202,12 @@ export class ImportResolver {
                     if (!moduleName || (candidateModuleName && candidateModuleName.length < moduleName.length)) {
                         moduleName = candidateModuleName;
                         importType = ImportType.ThirdParty;
-                        isTypeshedFile = false;
                     }
                 }
             }
         }
 
-        if (detectPyTyped && importType === ImportType.ThirdParty) {
+        if (importType === ImportType.ThirdParty) {
             const root = this.getParentImportResolutionRoot(filePath, execEnv.root);
 
             // Go up directories one by one looking for a py.typed file.
@@ -1245,13 +1230,12 @@ export class ImportResolver {
         }
 
         if (moduleName) {
-            return { moduleName, importType, isTypeshedFile, isLocalTypingsFile, isThirdPartyPyTypedPresent };
+            return { moduleName, importType, isLocalTypingsFile, isThirdPartyPyTypedPresent };
         }
 
         if (allowInvalidModuleName && moduleNameWithInvalidCharacters) {
             return {
                 moduleName: moduleNameWithInvalidCharacters,
-                isTypeshedFile,
                 importType,
                 isLocalTypingsFile,
                 isThirdPartyPyTypedPresent,
@@ -1261,7 +1245,6 @@ export class ImportResolver {
         // We didn't find any module name.
         return {
             moduleName: '',
-            isTypeshedFile,
             importType: ImportType.Local,
             isLocalTypingsFile,
             isThirdPartyPyTypedPresent,

@@ -171,7 +171,7 @@ export interface TypeResult<T extends Type = Type> {
     // as the class or object used to bind the member, but the
     // "super" call can specify a different class or object to
     // bind.
-    bindToSelfType?: ClassType | TypeVarType | undefined;
+    bindToType?: ClassType | TypeVarType | undefined;
 
     unpackedType?: Type | undefined;
     typeList?: TypeResultWithNode[] | undefined;
@@ -455,6 +455,11 @@ export const enum MemberAccessFlags {
     // acts like a class method instead.
     TreatConstructorAsClassMethod = 1 << 5,
 
+    // By default, class member lookups start with the class itself
+    // and fall back on the metaclass if it's not found. This option
+    // skips the first check.
+    ConsiderMetaclassOnly = 1 << 6,
+
     // If an attribute cannot be found when looking for instance
     // members, normally an attribute access override method
     // (__getattr__, etc.) may provide the missing attribute type.
@@ -534,14 +539,12 @@ export interface TypeEvaluator {
     getTypeOfIterable: (
         typeResult: TypeResult,
         isAsync: boolean,
-        errorNode: ExpressionNode,
-        emitNotIterableError?: boolean
+        errorNode: ExpressionNode | undefined
     ) => TypeResult | undefined;
     getTypeOfIterator: (
         typeResult: TypeResult,
         isAsync: boolean,
-        errorNode: ExpressionNode,
-        emitNotIterableError?: boolean
+        errorNode: ExpressionNode | undefined
     ) => TypeResult | undefined;
     getGetterTypeFromProperty: (propertyClass: ClassType, inferTypeIfNeeded: boolean) => Type | undefined;
     getTypeOfArgument: (arg: FunctionArgument) => TypeResult;
@@ -579,17 +582,18 @@ export interface TypeEvaluator {
         memberName: string,
         usage?: EvaluatorUsage,
         diag?: DiagnosticAddendum | undefined,
-        flags?: MemberAccessFlags,
-        selfType?: ClassType | TypeVarType
+        memberAccessFlags?: MemberAccessFlags,
+        bindToType?: ClassType | TypeVarType
     ): TypeResult | undefined;
     getTypeOfClassMemberName: (
         errorNode: ExpressionNode,
         classType: ClassType,
+        isAccessedThroughObject: boolean,
         memberName: string,
         usage: EvaluatorUsage,
         diag: DiagnosticAddendum | undefined,
         flags: MemberAccessFlags,
-        selfType?: ClassType | TypeVarType
+        bindToType?: ClassType | TypeVarType
     ) => ClassMemberLookup | undefined;
     getBoundMethod: (
         classType: ClassType,
@@ -597,10 +601,10 @@ export interface TypeEvaluator {
         recursionCount?: number,
         treatConstructorAsClassMember?: boolean
     ) => FunctionType | OverloadedFunctionType | undefined;
-    getTypeOfMagicMethodCall: (
+    getTypeOfMagicMethodReturn: (
         objType: Type,
-        methodName: string,
-        argList: TypeResult[],
+        args: TypeResult[],
+        magicMethodName: string,
         errorNode: ExpressionNode,
         inferenceContext: InferenceContext | undefined
     ) => Type | undefined;
@@ -609,7 +613,7 @@ export interface TypeEvaluator {
         memberType: FunctionType | OverloadedFunctionType,
         memberClass?: ClassType,
         treatConstructorAsClassMember?: boolean,
-        selfType?: ClassType | TypeVarType,
+        firstParamType?: ClassType | TypeVarType,
         diag?: DiagnosticAddendum,
         recursionCount?: number
     ) => FunctionType | OverloadedFunctionType | undefined;

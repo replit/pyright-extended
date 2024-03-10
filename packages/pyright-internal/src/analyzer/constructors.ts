@@ -100,13 +100,15 @@ export function validateConstructorArguments(
     const newMethodTypeResult = evaluator.getTypeOfClassMemberName(
         errorNode,
         type,
+        /* isAccessedThroughObject */ false,
         '__new__',
         { method: 'get' },
         /* diag */ undefined,
         MemberAccessFlags.AccessClassMembersOnly |
             MemberAccessFlags.SkipObjectBaseClass |
             MemberAccessFlags.SkipAttributeAccessOverride |
-            MemberAccessFlags.TreatConstructorAsClassMethod
+            MemberAccessFlags.TreatConstructorAsClassMethod,
+        type
     );
 
     const useConstructorTransform = hasConstructorTransform(type);
@@ -273,12 +275,15 @@ function validateNewAndInitMethods(
         initMethodTypeResult = evaluator.getTypeOfClassMemberName(
             errorNode,
             initMethodBindToType,
+            /* isAccessedThroughObject */ false,
             '__init__',
             { method: 'get' },
             /* diag */ undefined,
             MemberAccessFlags.AccessClassMembersOnly |
                 MemberAccessFlags.SkipObjectBaseClass |
-                MemberAccessFlags.SkipAttributeAccessOverride
+                MemberAccessFlags.SkipAttributeAccessOverride,
+
+            type
         );
 
         // Validate __init__ if it's present.
@@ -603,16 +608,14 @@ function validateFallbackConstructorCall(
 
     // It's OK if the argument list consists only of `*args` and `**kwargs`.
     if (argList.length > 0 && argList.some((arg) => arg.argumentCategory === ArgumentCategory.Simple)) {
-        if (!type.includeSubclasses) {
-            const fileInfo = getFileInfo(errorNode);
-            evaluator.addDiagnostic(
-                fileInfo.diagnosticRuleSet.reportGeneralTypeIssues,
-                DiagnosticRule.reportGeneralTypeIssues,
-                Localizer.Diagnostic.constructorNoArgs().format({ type: type.aliasName || type.details.name }),
-                errorNode
-            );
-            reportedErrors = true;
-        }
+        const fileInfo = getFileInfo(errorNode);
+        evaluator.addDiagnostic(
+            fileInfo.diagnosticRuleSet.reportGeneralTypeIssues,
+            DiagnosticRule.reportGeneralTypeIssues,
+            Localizer.Diagnostic.constructorNoArgs().format({ type: type.aliasName || type.details.name }),
+            errorNode
+        );
+        reportedErrors = true;
     }
 
     if (!inferenceContext && type.typeArguments) {
@@ -660,11 +663,12 @@ function validateMetaclassCall(
     if (metaclass && isInstantiableClass(metaclass) && !ClassType.isSameGenericClass(metaclass, type)) {
         const metaclassCallMethodInfo = evaluator.getTypeOfClassMemberName(
             errorNode,
-            ClassType.cloneAsInstance(metaclass),
+            metaclass,
+            /* isAccessedThroughObject */ true,
             '__call__',
             { method: 'get' },
             /* diag */ undefined,
-            MemberAccessFlags.AccessClassMembersOnly |
+            MemberAccessFlags.ConsiderMetaclassOnly |
                 MemberAccessFlags.SkipTypeBaseClass |
                 MemberAccessFlags.SkipAttributeAccessOverride,
             type
@@ -800,11 +804,7 @@ export function createFunctionFromConstructor(
             let constructorFunction = evaluator.bindFunctionToClassOrObject(
                 objectType,
                 initSubtype,
-                /* memberClass */ undefined,
-                /* treatConstructorAsClassMember */ undefined,
-                /* selfType */ undefined,
-                /* diag */ undefined,
-                recursionCount
+                /* memberClass */ undefined
             ) as FunctionType | undefined;
 
             if (constructorFunction) {
@@ -864,10 +864,7 @@ export function createFunctionFromConstructor(
                 classType,
                 newSubtype,
                 /* memberClass */ undefined,
-                /* treatConstructorAsClassMember */ true,
-                /* selfType */ undefined,
-                /* diag */ undefined,
-                recursionCount
+                /* treatConstructorAsClassMember */ true
             ) as FunctionType | undefined;
 
             if (constructorFunction) {

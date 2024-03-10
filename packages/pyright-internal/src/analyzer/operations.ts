@@ -177,10 +177,10 @@ export function validateBinaryOperation(
                                 return preserveUnknown(leftSubtype, rightSubtypeExpanded);
                             }
 
-                            let returnType = evaluator.getTypeOfMagicMethodCall(
+                            let returnType = evaluator.getTypeOfMagicMethodReturn(
                                 rightSubtypeExpanded,
-                                '__contains__',
                                 [{ type: leftSubtype, isIncomplete: leftTypeResult.isIncomplete }],
+                                '__contains__',
                                 errorNode,
                                 /* inferenceContext */ undefined
                             );
@@ -191,8 +191,7 @@ export function validateBinaryOperation(
                                 const iteratorType = evaluator.getTypeOfIterator(
                                     { type: rightSubtypeExpanded, isIncomplete: rightTypeResult.isIncomplete },
                                     /* isAsync */ false,
-                                    errorNode,
-                                    /* emitNotIterableError */ false
+                                    /* errorNode */ undefined
                                 )?.type;
 
                                 if (iteratorType && evaluator.assignType(iteratorType, leftSubtype)) {
@@ -385,20 +384,20 @@ export function validateBinaryOperation(
                             }
 
                             const magicMethodName = binaryOperatorMap[operator][0];
-                            let resultType = evaluator.getTypeOfMagicMethodCall(
+                            let resultType = evaluator.getTypeOfMagicMethodReturn(
                                 convertFunctionToObject(evaluator, leftSubtypeUnexpanded),
-                                magicMethodName,
                                 [{ type: rightSubtypeUnexpanded, isIncomplete: rightTypeResult.isIncomplete }],
+                                magicMethodName,
                                 errorNode,
                                 inferenceContext
                             );
 
                             if (!resultType && leftSubtypeUnexpanded !== leftSubtypeExpanded) {
                                 // Try the expanded left type.
-                                resultType = evaluator.getTypeOfMagicMethodCall(
+                                resultType = evaluator.getTypeOfMagicMethodReturn(
                                     convertFunctionToObject(evaluator, leftSubtypeExpanded),
-                                    magicMethodName,
                                     [{ type: rightSubtypeUnexpanded, isIncomplete: rightTypeResult.isIncomplete }],
+                                    magicMethodName,
                                     errorNode,
                                     inferenceContext
                                 );
@@ -406,10 +405,10 @@ export function validateBinaryOperation(
 
                             if (!resultType && rightSubtypeUnexpanded !== rightSubtypeExpanded) {
                                 // Try the expanded left and right type.
-                                resultType = evaluator.getTypeOfMagicMethodCall(
+                                resultType = evaluator.getTypeOfMagicMethodReturn(
                                     convertFunctionToObject(evaluator, leftSubtypeExpanded),
-                                    magicMethodName,
                                     [{ type: rightSubtypeExpanded, isIncomplete: rightTypeResult.isIncomplete }],
+                                    magicMethodName,
                                     errorNode,
                                     inferenceContext
                                 );
@@ -418,25 +417,25 @@ export function validateBinaryOperation(
                             if (!resultType) {
                                 // Try the alternate form (swapping right and left).
                                 const altMagicMethodName = binaryOperatorMap[operator][1];
-                                resultType = evaluator.getTypeOfMagicMethodCall(
+                                resultType = evaluator.getTypeOfMagicMethodReturn(
                                     convertFunctionToObject(evaluator, rightSubtypeUnexpanded),
-                                    altMagicMethodName,
                                     [{ type: leftSubtypeUnexpanded, isIncomplete: leftTypeResult.isIncomplete }],
+                                    altMagicMethodName,
                                     errorNode,
                                     inferenceContext
                                 );
 
                                 if (!resultType && rightSubtypeUnexpanded !== rightSubtypeExpanded) {
                                     // Try the expanded right type.
-                                    resultType = evaluator.getTypeOfMagicMethodCall(
+                                    resultType = evaluator.getTypeOfMagicMethodReturn(
                                         convertFunctionToObject(evaluator, rightSubtypeExpanded),
-                                        altMagicMethodName,
                                         [
                                             {
                                                 type: leftSubtypeUnexpanded,
                                                 isIncomplete: leftTypeResult.isIncomplete,
                                             },
                                         ],
+                                        altMagicMethodName,
                                         errorNode,
                                         inferenceContext
                                     );
@@ -444,10 +443,10 @@ export function validateBinaryOperation(
 
                                 if (!resultType && leftSubtypeUnexpanded !== leftSubtypeExpanded) {
                                     // Try the expanded right and left type.
-                                    resultType = evaluator.getTypeOfMagicMethodCall(
+                                    resultType = evaluator.getTypeOfMagicMethodReturn(
                                         convertFunctionToObject(evaluator, rightSubtypeExpanded),
-                                        altMagicMethodName,
                                         [{ type: leftSubtypeExpanded, isIncomplete: leftTypeResult.isIncomplete }],
+                                        altMagicMethodName,
                                         errorNode,
                                         inferenceContext
                                     );
@@ -826,20 +825,20 @@ export function getTypeOfAugmentedAssignment(
                         }
 
                         const magicMethodName = operatorMap[node.operator][0];
-                        let returnType = evaluator.getTypeOfMagicMethodCall(
+                        let returnType = evaluator.getTypeOfMagicMethodReturn(
                             leftSubtypeUnexpanded,
-                            magicMethodName,
                             [{ type: rightSubtypeUnexpanded, isIncomplete: rightTypeResult.isIncomplete }],
+                            magicMethodName,
                             node,
                             inferenceContext
                         );
 
                         if (!returnType && leftSubtypeUnexpanded !== leftSubtypeExpanded) {
                             // Try with the expanded left type.
-                            returnType = evaluator.getTypeOfMagicMethodCall(
+                            returnType = evaluator.getTypeOfMagicMethodReturn(
                                 leftSubtypeExpanded,
-                                magicMethodName,
                                 [{ type: rightSubtypeUnexpanded, isIncomplete: rightTypeResult.isIncomplete }],
+                                magicMethodName,
                                 node,
                                 inferenceContext
                             );
@@ -847,10 +846,10 @@ export function getTypeOfAugmentedAssignment(
 
                         if (!returnType && rightSubtypeUnexpanded !== rightSubtypeExpanded) {
                             // Try with the expanded left and right type.
-                            returnType = evaluator.getTypeOfMagicMethodCall(
+                            returnType = evaluator.getTypeOfMagicMethodReturn(
                                 leftSubtypeExpanded,
-                                magicMethodName,
                                 [{ type: rightSubtypeExpanded, isIncomplete: rightTypeResult.isIncomplete }],
+                                magicMethodName,
                                 node,
                                 inferenceContext
                             );
@@ -998,7 +997,7 @@ export function getTypeOfUnaryOperation(
                 type = exprType;
             } else {
                 const magicMethodName = unaryOperatorMap[node.operator];
-                type = evaluator.getTypeOfMagicMethodCall(exprType, magicMethodName, [], node, inferenceContext);
+                type = evaluator.getTypeOfMagicMethodReturn(exprType, [], magicMethodName, node, inferenceContext);
             }
 
             if (!type) {

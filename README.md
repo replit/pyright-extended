@@ -3,6 +3,17 @@
 [![Run on Repl.it](https://img.shields.io/badge/run-on_Replit-f26208?logo=replit)](https://repl.it/github/replit/pyright-extended) [![npm: @replit/pyright-extended](https://img.shields.io/npm/v/%40replit%2Fpyright-extended)](https://www.npmjs.com/package/@replit/pyright-extended)
 
 Pyright is a full-featured, standards-based static type checker for Python. It is designed for high performance and can be used with large Python source bases.
+
+Pyright includes both a [command-line tool](https://microsoft.github.io/pyright/#/command-line) and an [extension for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=ms-pyright.pyright).
+
+
+## Pyright Playground
+
+Try Pyright in your browser using the [Pyright Playground](https://pyright-play.net/?code=MQAgKgFglgziMEMC2AHANgUxAEw0g9gHYwAuATgiRnBPgO4gDG%2BSBhIGZZ%2BZcjC7AEZZcVRlWzwSlKPzRoAniEFKUCslADmEEgDoAUPtwAzEAmzYAFAA8AXCGNp8lADQgF9x85IBKW-pBAkDIMEgBXMnZrEABqd0NQAAUEGBgoQk0zKTIQdNIBRiwUkBIILBgMZkJJBDJNMKQMQhJg6jC0Ejh0rLIw5qhGjmtClBIoIgNzKwBGNwAiOZ99IA).
+
+
+## Documentation
+
 Refer to [the documentation](https://microsoft.github.io/pyright) for installation, configuration, and usage details.
 
 `pyright-extended`, which lives in this repository, is a new Python meta-LSP that includes tools such as `pyright`, `ruff`, and `yapf`.

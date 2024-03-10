@@ -326,13 +326,13 @@ export class TestState {
         return this.convertPositionRange(range);
     }
 
-    getPosition(markerString: string): Position {
+    getPosition(markerString: string): number {
         const marker = this.getMarkerByName(markerString);
         const ranges = this.getRanges().filter((r) => r.marker === marker);
         if (ranges.length !== 1) {
             this.raiseError(`no matching range for ${markerString}`);
         }
-        return this.convertOffsetToPosition(marker.fileName, marker.position);
+        return marker.position;
     }
 
     expandPositionRange(range: PositionRange, start: number, end: number) {

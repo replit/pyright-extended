@@ -345,12 +345,8 @@ export function transformTypeForPossibleEnumClass(
         // a special case.
         if (isUnpackedTuple) {
             valueType =
-                evaluator.getTypeOfIterator(
-                    { type: valueType },
-                    /* isAsync */ false,
-                    node,
-                    /* emitNotIterableError */ false
-                )?.type ?? UnknownType.create();
+                evaluator.getTypeOfIterator({ type: valueType }, /* isAsync */ false, /* errorNode */ undefined)
+                    ?.type ?? UnknownType.create();
         }
     }
 

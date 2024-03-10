@@ -102,8 +102,8 @@ import {
 } from './common/diagnostic';
 import { DiagnosticRule } from './common/diagnosticRules';
 import { FileDiagnostics } from './common/diagnosticSink';
-import { FileWatcherEventType, FileWatcherHandler, FileWatcherProvider } from './common/fileWatcher';
 import { FileSystem, ReadOnlyFileSystem } from './common/fileSystem';
+import { FileWatcherEventType, FileWatcherHandler, FileWatcherProvider } from './common/fileWatcher';
 import { Host } from './common/host';
 import { fromLSPAny } from './common/lspUtils';
 import {
@@ -1341,7 +1341,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
                 return;
             }
 
-            this.sendDiagnostics(this.convertDiagnostics(fs, fileDiag));
+            this._sendDiagnostics(this.convertDiagnostics(fs, fileDiag));
         });
 
         if (!this._progressReporter.isEnabled(results)) {
@@ -1389,7 +1389,7 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
                 if (otherWorkspaces.some((w) => w.service.isTracked(filePath))) {
                     continue;
                 }
-                this.sendDiagnostics([
+                this._sendDiagnostics([
                     {
                         uri: uri,
                         diagnostics: [],
@@ -1470,17 +1470,6 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
         };
     }
 
-    protected sendDiagnostics(params: PublishDiagnosticsParams[]) {
-        for (const param of params) {
-            if (param.diagnostics.length === 0) {
-                this.documentsWithDiagnostics.delete(param.uri);
-            } else {
-                this.documentsWithDiagnostics.add(param.uri);
-            }
-            this.connection.sendDiagnostics(param);
-        }
-    }
-
     private _setupFileWatcher() {
         if (!this.client.hasWatchFileCapability) {
             // we won't get notifs from client for changes, let's spawn a watcher to track our own
@@ -1524,6 +1513,17 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
 
             this._lastFileWatcherRegistration = d;
         });
+    }
+
+    private _sendDiagnostics(params: PublishDiagnosticsParams[]) {
+        for (const param of params) {
+            if (param.diagnostics.length === 0) {
+                this.documentsWithDiagnostics.delete(param.uri);
+            } else {
+                this.documentsWithDiagnostics.add(param.uri);
+            }
+            this.connection.sendDiagnostics(param);
+        }
     }
 
     private _getCompatibleMarkupKind(clientSupportedFormats: MarkupKind[] | undefined) {
