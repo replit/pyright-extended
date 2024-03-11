@@ -557,7 +557,6 @@ export interface DataClassBehaviors {
 export interface ProtocolCompatibility {
     srcType: Type;
     destType: Type;
-    treatSourceAsInstantiable: boolean;
     flags: number; // AssignTypeFlags
     isCompatible: boolean;
 }
@@ -688,6 +687,11 @@ export interface ClassType extends TypeBase {
     // Indicates whether the class has an asymmetric __getattr__ and
     // __setattr__ signature.
     isAsymmetricAttributeAccessor?: boolean;
+
+    // Special-case fields for property classes.
+    fgetFunction?: FunctionType | undefined;
+    fsetFunction?: FunctionType | undefined;
+    fdelFunction?: FunctionType | undefined;
 }
 
 export namespace ClassType {
@@ -2024,6 +2028,10 @@ export namespace FunctionType {
 
     export function addParameter(type: FunctionType, param: FunctionParameter) {
         type.details.parameters.push(param);
+
+        if (type.specializedTypes) {
+            type.specializedTypes.parameterTypes.push(param.type);
+        }
     }
 
     export function getSpecializedReturnType(type: FunctionType) {

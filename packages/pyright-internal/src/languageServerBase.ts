@@ -92,7 +92,12 @@ import {
     DiagnosticSeverityOverridesMap,
     getDiagnosticSeverityOverrides,
 } from './common/commandLineOptions';
-import { ConfigOptions, SignatureDisplayType, getDiagLevelDiagnosticRules } from './common/configOptions';
+import {
+    ConfigOptions,
+    SignatureDisplayType,
+    getDiagLevelDiagnosticRules,
+    parseDiagLevel,
+} from './common/configOptions';
 import { ConsoleInterface, ConsoleWithLogLevel, LogLevel } from './common/console';
 import {
     Diagnostic as AnalyzerDiagnostic,
@@ -102,8 +107,8 @@ import {
 } from './common/diagnostic';
 import { DiagnosticRule } from './common/diagnosticRules';
 import { FileDiagnostics } from './common/diagnosticSink';
-import { FileWatcherEventType, FileWatcherHandler, FileWatcherProvider } from './common/fileWatcher';
 import { FileSystem, ReadOnlyFileSystem } from './common/fileSystem';
+import { FileWatcherEventType, FileWatcherHandler, FileWatcherProvider } from './common/fileWatcher';
 import { Host } from './common/host';
 import { fromLSPAny } from './common/lspUtils';
 import {
@@ -156,7 +161,7 @@ export interface ServerSettings {
     indexing?: boolean | undefined;
     logTypeEvaluationTime?: boolean | undefined;
     typeEvaluationTimeThreshold?: number | undefined;
-    fileSpecs?: string[];
+    includeFileSpecs?: string[];
     excludeFileSpecs?: string[];
     ignoreFileSpecs?: string[];
     taskListTokens?: TaskListToken[];
@@ -583,8 +588,11 @@ export abstract class LanguageServerBase implements LanguageServerInterface, Dis
         return diagnosticMode !== 'workspace';
     }
 
-    protected getSeverityOverrides(value: string): DiagnosticSeverityOverrides | undefined {
-        const enumValue = value as DiagnosticSeverityOverrides;
+    protected getSeverityOverrides(value: string | boolean): DiagnosticSeverityOverrides | undefined {
+        const enumValue = parseDiagLevel(value);
+        if (!enumValue) {
+            return undefined;
+        }
         if (getDiagnosticSeverityOverrides().includes(enumValue)) {
             return enumValue;
         }

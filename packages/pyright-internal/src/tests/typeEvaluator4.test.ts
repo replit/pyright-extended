@@ -482,7 +482,7 @@ test('MemberAccess9', () => {
 
 test('MemberAccess10', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['memberAccess10.py']);
-    TestUtils.validateResults(analysisResults, 3);
+    TestUtils.validateResults(analysisResults, 2);
 });
 
 test('MemberAccess11', () => {
@@ -517,7 +517,7 @@ test('MemberAccess16', () => {
 
 test('MemberAccess17', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['memberAccess17.py']);
-    TestUtils.validateResults(analysisResults, 0);
+    TestUtils.validateResults(analysisResults, 5);
 });
 
 test('MemberAccess18', () => {
@@ -1052,7 +1052,7 @@ test('ParamSpec40', () => {
 
 test('ParamSpec41', () => {
     const results = TestUtils.typeAnalyzeSampleFiles(['paramSpec41.py']);
-    TestUtils.validateResults(results, 1);
+    TestUtils.validateResults(results, 2);
 });
 
 test('ParamSpec42', () => {

@@ -687,6 +687,8 @@ export namespace Localizer {
         export const optionalExtraArgs = () => getRawString('Diagnostic.optionalExtraArgs');
         export const orPatternIrrefutable = () => getRawString('Diagnostic.orPatternIrrefutable');
         export const orPatternMissingName = () => getRawString('Diagnostic.orPatternMissingName');
+        export const overlappingKeywordArgs = () =>
+            new ParameterizedString<{ names: string }>(getRawString('Diagnostic.overlappingKeywordArgs'));
         export const overlappingOverload = () =>
             new ParameterizedString<{ name: string; obscured: number; obscuredBy: number }>(
                 getRawString('Diagnostic.overlappingOverload')
@@ -858,6 +860,8 @@ export namespace Localizer {
         export const superCallSecondArg = () =>
             new ParameterizedString<{ type: string }>(getRawString('Diagnostic.superCallSecondArg'));
         export const superCallZeroArgForm = () => getRawString('Diagnostic.superCallZeroArgForm');
+        export const superCallZeroArgFormStaticMethod = () =>
+            getRawString('Diagnostic.superCallZeroArgFormStaticMethod');
         export const symbolIsUnbound = () =>
             new ParameterizedString<{ name: string }>(getRawString('Diagnostic.symbolIsUnbound'));
         export const symbolIsUndefined = () =>
@@ -1165,6 +1169,14 @@ export namespace Localizer {
         export const dataClassFrozen = () =>
             new ParameterizedString<{ name: string }>(getRawString('DiagnosticAddendum.dataClassFrozen'));
         export const dataClassFieldLocation = () => getRawString('DiagnosticAddendum.dataClassFieldLocation');
+        export const descriptorAccessBindingFailed = () =>
+            new ParameterizedString<{ name: string; className: string }>(
+                getRawString('DiagnosticAddendum.descriptorAccessBindingFailed')
+            );
+        export const descriptorAccessCallFailed = () =>
+            new ParameterizedString<{ name: string; className: string }>(
+                getRawString('DiagnosticAddendum.descriptorAccessCallFailed')
+            );
         export const finalMethod = () => getRawString('DiagnosticAddendum.finalMethod');
         export const functionParamDefaultMissing = () =>
             new ParameterizedString<{ name: string }>(getRawString('DiagnosticAddendum.functionParamDefaultMissing'));
