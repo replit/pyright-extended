@@ -1,0 +1,158 @@
+{
+  "clientInfo": {
+    "name": "Replit Editor",
+    "version": "2024-01-01"
+  },
+  "capabilities": {
+    "textDocument": {
+      "synchronization": {
+        "dynamicRegistration": true,
+        "didSave": true
+      },
+      "signatureHelp": {
+        "dynamicRegistration": true,
+        "signatureInformation": {
+          "documentationFormat": [
+            "markdown",
+            "plaintext"
+          ]
+        }
+      },
+      "publishDiagnostics": {
+        "relatedInformation": true,
+        "tagSupport": {
+          "valueSet": [
+            1,
+            2
+          ]
+        }
+      },
+      "formatting": {
+        "dynamicRegistration": true
+      },
+      "documentSymbol": {
+        "dynamicRegistration": true,
+        "hierarchicalDocumentSymbolSupport": true,
+        "symbolKind": {
+          "valueSet": [
+            18,
+            17,
+            5,
+            14,
+            9,
+            10,
+            22,
+            24,
+            8,
+            1,
+            12,
+            11,
+            20,
+            6,
+            2,
+            3,
+            19,
+            25,
+            4,
+            7,
+            15,
+            23,
+            26,
+            13
+          ]
+        }
+      },
+      "definition": {
+        "dynamicRegistration": true,
+        "linkSupport": true
+      },
+      "typeDefinition": {
+        "dynamicRegistration": true
+      },
+      "implementation": {
+        "dynamicRegistration": true
+      },
+      "references": {
+        "dynamicRegistration": true
+      },
+      "rename": {
+        "dynamicRegistration": true,
+        "prepareSupport": true
+      },
+      "completion": {
+        "dynamicRegistration": true,
+        "contextSupport": true,
+        "completionItem": {
+          "commitCharactersSupport": true,
+          "documentationFormat": [
+            "markdown",
+            "plaintext"
+          ],
+          "labelDetailsSupport": true,
+          "resolveSupport": {
+            "properties": [
+              "detail",
+              "documentation"
+            ]
+          },
+          "snippetSupport": true
+        },
+        "completionList": {
+          "itemDefaults": [
+            "commitCharacters"
+          ]
+        }
+      },
+      "codeAction": {
+        "resolveSupport": {
+          "properties": [
+            "edit"
+          ]
+        },
+        "dataSupport": true,
+        "dynamicRegistration": true,
+        "isPreferredSupport": true,
+        "codeActionLiteralSupport": {
+          "codeActionKind": {
+            "valueSet": [
+              "",
+              "quickfix",
+              "refactor",
+              "refactor.extract",
+              "refactor.inline",
+              "refactor.rewrite",
+              "source",
+              "source.organizeImports",
+              "source.fixAll"
+            ]
+          }
+        }
+      },
+      "hover": {
+        "dynamicRegistration": true,
+        "contentFormat": [
+          "markdown",
+          "plaintext"
+        ]
+      }
+    },
+    "workspace": {
+      "applyEdit": true,
+      "didChangeConfiguration": {
+        "dynamicRegistration": true
+      },
+      "configuration": true,
+      "executeCommand": {
+        "dynamicRegistration": true
+      },
+      "workspaceEdit": {
+        "documentChanges": true,
+        "resourceOperations": [
+          "create",
+          "delete",
+          "rename"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "pyright-extended-tests"
+version = "0.1.0"
+description = "LSP tests"
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<4.0"
+pytest-lsp = "^0.4"
+lsp-devtools = "^0.2"
+
+[tool.poetry.scripts]
+test = "pyright_extended_tests:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
