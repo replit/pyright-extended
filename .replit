@@ -1,6 +1,7 @@
 modules = ["nodejs-20:v8-20230920-bd784b9"]
 hidden = [".config", "package-lock.json"]
-run = "npm run build:lsp"
+compile = "make build"
+run = "make test"
 
 [gitHubImport]
 requiredFiles = [".replit", "replit.nix", "package.json", "package-lock.json"]
@@ -12,4 +13,4 @@ channel = "stable-23_11"
 language = "nodejs"
 
 [languages.python.languageServer]
-start = "node $REPL_HOME/packages/pyright/dist/pyright-langserver.js --stdio"
+start = "make dotreplit"
