@@ -9,8 +9,9 @@
 
 import assert from 'assert';
 
-import { combinePaths, getBaseFileName, normalizeSlashes } from '../common/pathUtils';
+import { getBaseFileName, normalizeSlashes } from '../common/pathUtils';
 import { compareStringsCaseSensitive } from '../common/stringUtils';
+import { Uri } from '../common/uri/uri';
 import { parseTestData } from './harness/fourslash/fourSlashParser';
 import { CompilerSettings } from './harness/fourslash/fourSlashTypes';
 import * as host from './harness/testHost';
@@ -89,7 +90,7 @@ test('Library options', () => {
 
     const data = parseTestData('.', code, 'test.py');
 
-    assert.equal(data.files[0].fileName, normalizeSlashes(combinePaths(factory.libFolder, 'file1.py')));
+    assert.equal(data.files[0].fileName, factory.libFolder.combinePaths('file1.py').getFilePath());
 });
 
 test('Range', () => {
@@ -104,7 +105,9 @@ test('Range', () => {
     const data = parseTestData('.', code, 'test.py');
     assert.equal(data.files[0].content, content);
 
-    assert.deepEqual(data.ranges, [{ fileName: 'test.py', pos: 13, end: 17, marker: undefined }]);
+    assert.deepEqual(data.ranges, [
+        { fileName: 'test.py', fileUri: Uri.file('test.py'), pos: 13, end: 17, marker: undefined },
+    ]);
 });
 
 test('Marker', () => {
@@ -119,7 +122,7 @@ test('Marker', () => {
     const data = parseTestData('.', code, 'test.py');
     assert.equal(data.files[0].content, content);
 
-    const marker = { fileName: 'test.py', position: 13 };
+    const marker = { fileName: 'test.py', fileUri: Uri.file('test.py'), position: 13 };
     assert.deepEqual(data.markers, [marker]);
     assert.deepEqual(data.markerPositions.get('marker1'), marker);
 });
@@ -137,7 +140,9 @@ test('MarkerWithData', () => {
     const data = parseTestData('.', code, 'test.py');
     assert.equal(data.files[0].content, content);
 
-    assert.deepEqual(data.markers, [{ fileName: 'test.py', position: 13, data: { data1: '1', data2: '2' } }]);
+    assert.deepEqual(data.markers, [
+        { fileName: 'test.py', fileUri: Uri.file('test.py'), position: 13, data: { data1: '1', data2: '2' } },
+    ]);
     assert.equal(data.markerPositions.size, 0);
 });
 
@@ -154,7 +159,12 @@ test('MarkerWithDataAndName', () => {
     const data = parseTestData('.', code, 'test.py');
     assert.equal(data.files[0].content, content);
 
-    const marker = { fileName: 'test.py', position: 13, data: { name: 'marker1', data1: '1', data2: '2' } };
+    const marker = {
+        fileName: 'test.py',
+        fileUri: Uri.file('test.py'),
+        position: 13,
+        data: { name: 'marker1', data1: '1', data2: '2' },
+    };
     assert.deepEqual(data.markers, [marker]);
     assert.deepEqual(data.markerPositions.get(marker.data.name), marker);
 });
@@ -172,11 +182,11 @@ test('RangeWithMarker', () => {
     const data = parseTestData('.', code, 'test.py');
     assert.equal(data.files[0].content, content);
 
-    const marker = { fileName: 'test.py', position: 13 };
+    const marker = { fileName: 'test.py', fileUri: Uri.file('test.py'), position: 13 };
     assert.deepEqual(data.markers, [marker]);
     assert.deepEqual(data.markerPositions.get('marker1'), marker);
 
-    assert.deepEqual(data.ranges, [{ fileName: 'test.py', pos: 13, end: 17, marker }]);
+    assert.deepEqual(data.ranges, [{ fileName: 'test.py', fileUri: Uri.file('test.py'), pos: 13, end: 17, marker }]);
 });
 
 test('RangeWithMarkerAndJsonData', () => {
@@ -192,11 +202,16 @@ test('RangeWithMarkerAndJsonData', () => {
     const data = parseTestData('.', code, 'test.py');
     assert.equal(data.files[0].content, content);
 
-    const marker = { fileName: 'test.py', position: 13, data: { name: 'marker1', data1: '1', data2: '2' } };
+    const marker = {
+        fileName: 'test.py',
+        fileUri: Uri.file('test.py'),
+        position: 13,
+        data: { name: 'marker1', data1: '1', data2: '2' },
+    };
     assert.deepEqual(data.markers, [marker]);
     assert.deepEqual(data.markerPositions.get(marker.data.name), marker);
 
-    assert.deepEqual(data.ranges, [{ fileName: 'test.py', pos: 13, end: 17, marker }]);
+    assert.deepEqual(data.ranges, [{ fileName: 'test.py', fileUri: Uri.file('test.py'), pos: 13, end: 17, marker }]);
 });
 
 test('Multiple Files', () => {
@@ -222,8 +237,7 @@ test('Multiple Files', () => {
 
     assert.equal(data.files.filter((f) => f.fileName === normalizeSlashes('./src/A.py'))[0].content, getContent('A'));
     assert.equal(
-        data.files.filter((f) => f.fileName === normalizeSlashes(combinePaths(factory.libFolder, 'src/B.py')))[0]
-            .content,
+        data.files.filter((f) => f.fileName === factory.libFolder.resolvePaths('src/B.py').getFilePath())[0].content,
         getContent('B')
     );
     assert.equal(data.files.filter((f) => f.fileName === normalizeSlashes('./src/C.py'))[0].content, getContent('C'));
@@ -312,7 +326,10 @@ test('fourSlashWithFileSystem', () => {
     });
 
     for (const file of data.files) {
-        assert.equal(fs.readFileSync(file.fileName, 'utf8'), getContent(getBaseFileName(file.fileName, '.py', false)));
+        assert.equal(
+            fs.readFileSync(Uri.file(file.fileName), 'utf8'),
+            getContent(getBaseFileName(file.fileName, '.py', false))
+        );
     }
 });
 

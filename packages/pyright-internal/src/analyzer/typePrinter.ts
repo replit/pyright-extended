@@ -8,6 +8,7 @@
  */
 
 import { appendArray } from '../common/collectionUtils';
+import { assert } from '../common/debug';
 import { ParameterCategory } from '../parser/parseNodes';
 import { isTypedKwargs } from './parameterUtils';
 import * as ParseTreeUtils from './parseTreeUtils';
@@ -27,11 +28,11 @@ import {
     isUnpacked,
     isVariadicTypeVar,
     maxTypeRecursionCount,
+    OverloadedFunctionType,
     TupleTypeArgument,
     Type,
     TypeBase,
     TypeCategory,
-    TypeFlags,
     TypeVarType,
     Variance,
 } from './types';
@@ -122,6 +123,27 @@ export function printObjectTypeForClass(
     return printObjectTypeForClassInternal(type, printTypeFlags, returnTypeCallback, uniqueNameMap, [], 0);
 }
 
+const maxLiteralStringLength = 50;
+
+export function isLiteralValueTruncated(type: ClassType): boolean {
+    if (typeof type.literalValue === 'string') {
+        if (type.literalValue.length > maxLiteralStringLength) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+export function printLiteralValueTruncated(type: ClassType): string {
+    if (type.details.name === 'bytes') {
+        return 'bytes';
+    }
+
+    assert(type.details.name === 'str');
+    return 'LiteralString';
+}
+
 export function printLiteralValue(type: ClassType, quotation = "'"): string {
     const literalValue = type.literalValue;
     if (literalValue === undefined) {
@@ -133,7 +155,6 @@ export function printLiteralValue(type: ClassType, quotation = "'"): string {
         let effectiveLiteralValue = literalValue;
 
         // Limit the length of the string literal.
-        const maxLiteralStringLength = 50;
         if (literalValue.length > maxLiteralStringLength) {
             effectiveLiteralValue = literalValue.substring(0, maxLiteralStringLength) + '…';
         }
@@ -234,7 +255,7 @@ function printTypeInternal(
 
                 const typeParams = type.typeAliasInfo.typeParameters;
 
-                if (typeParams) {
+                if (typeParams && typeParams.length > 0) {
                     let argumentStrings: string[] | undefined;
 
                     // If there is a type arguments array, it's a specialized type alias.
@@ -254,7 +275,8 @@ function printTypeInternal(
                                     isVariadicTypeVar(typeParam) &&
                                     isClassInstance(typeArg) &&
                                     isTupleClass(typeArg) &&
-                                    typeArg.tupleTypeArguments
+                                    typeArg.tupleTypeArguments &&
+                                    typeArg.tupleTypeArguments.every((typeArg) => !typeArg.isUnbounded)
                                 ) {
                                     typeArg.tupleTypeArguments.forEach((tupleTypeArg) => {
                                         argumentStrings!.push(
@@ -402,7 +424,11 @@ function printTypeInternal(
             case TypeCategory.Class: {
                 if (TypeBase.isInstance(type)) {
                     if (type.literalValue !== undefined) {
-                        return `Literal[${printLiteralValue(type)}]`;
+                        if (isLiteralValueTruncated(type) && (printTypeFlags & PrintTypeFlags.PythonSyntax) !== 0) {
+                            return printLiteralValueTruncated(type);
+                        } else {
+                            return `Literal[${printLiteralValue(type)}]`;
+                        }
                     }
 
                     return `${printObjectTypeForClassInternal(
@@ -417,16 +443,20 @@ function printTypeInternal(
                     let typeToWrap: string;
 
                     if (type.literalValue !== undefined) {
-                        typeToWrap = `Literal[${printLiteralValue(type)}]`;
+                        if (isLiteralValueTruncated(type) && (printTypeFlags & PrintTypeFlags.PythonSyntax) !== 0) {
+                            typeToWrap = printLiteralValueTruncated(type);
+                        } else {
+                            typeToWrap = `Literal[${printLiteralValue(type)}]`;
+                        }
                     } else {
-                        typeToWrap = `${printObjectTypeForClassInternal(
+                        typeToWrap = printObjectTypeForClassInternal(
                             type,
                             printTypeFlags,
                             returnTypeCallback,
                             uniqueNameMap,
                             recursionTypes,
                             recursionCount
-                        )}`;
+                        );
                     }
 
                     return `${_printNestedInstantiable(type, typeToWrap)}${getConditionalIndicator(type)}`;
@@ -457,8 +487,7 @@ function printTypeInternal(
             }
 
             case TypeCategory.OverloadedFunction: {
-                const overloadedType = type;
-                const overloads = overloadedType.overloads.map((overload) =>
+                const overloads = OverloadedFunctionType.getOverloads(type).map((overload) =>
                     printTypeInternal(
                         overload,
                         printTypeFlags,
@@ -468,9 +497,15 @@ function printTypeInternal(
                         recursionCount
                     )
                 );
+
                 if (printTypeFlags & PrintTypeFlags.PythonSyntax) {
                     return 'Callable[..., Any]';
                 }
+
+                if (overloads.length === 1) {
+                    return overloads[0];
+                }
+
                 return `Overload[${overloads.join(', ')}]`;
             }
 
@@ -503,11 +538,7 @@ function printTypeInternal(
                             const sourceSubtypeInstance = convertToInstance(sourceSubtype);
 
                             for (const unionSubtype of type.subtypes) {
-                                if (
-                                    isTypeSame(sourceSubtypeInstance, unionSubtype, {
-                                        typeFlagsToHonor: TypeFlags.Instance | TypeFlags.Instantiable,
-                                    })
-                                ) {
+                                if (isTypeSame(sourceSubtypeInstance, unionSubtype)) {
                                     if (!subtypeHandledSet.has(unionSubtypeIndex)) {
                                         allSubtypesPreviouslyHandled = false;
                                     }
@@ -573,9 +604,23 @@ function printTypeInternal(
                 doForEachSubtype(type, (subtype, index) => {
                     if (!subtypeHandledSet.has(index)) {
                         if (isClassInstance(subtype) && subtype.literalValue !== undefined) {
-                            literalObjectStrings.add(printLiteralValue(subtype));
+                            if (
+                                isLiteralValueTruncated(subtype) &&
+                                (printTypeFlags & PrintTypeFlags.PythonSyntax) !== 0
+                            ) {
+                                subtypeStrings.add(printLiteralValueTruncated(subtype));
+                            } else {
+                                literalObjectStrings.add(printLiteralValue(subtype));
+                            }
                         } else if (isInstantiableClass(subtype) && subtype.literalValue !== undefined) {
-                            literalClassStrings.add(printLiteralValue(subtype));
+                            if (
+                                isLiteralValueTruncated(subtype) &&
+                                (printTypeFlags & PrintTypeFlags.PythonSyntax) !== 0
+                            ) {
+                                subtypeStrings.add(`type[${printLiteralValueTruncated(subtype)}]`);
+                            } else {
+                                literalClassStrings.add(printLiteralValue(subtype));
+                            }
                         } else {
                             subtypeStrings.add(
                                 printTypeInternal(
@@ -1045,7 +1090,7 @@ function printFunctionPartsInternal(
             printTypeFlags & PrintTypeFlags.ExpandTypedDictArgs &&
             param.type.category === TypeCategory.Class
         ) {
-            param.type.details.typedDictEntries!.forEach((v, k) => {
+            param.type.details.typedDictEntries!.knownItems.forEach((v, k) => {
                 const valueTypeString = printTypeInternal(
                     v.valueType,
                     printTypeFlags,

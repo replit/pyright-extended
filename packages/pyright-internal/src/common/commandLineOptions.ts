@@ -115,7 +115,7 @@ export class CommandLineOptions {
     extraPaths?: string[] | undefined;
 
     // Default type-checking rule set. Should be one of 'off',
-    // 'basic', or 'strict'.
+    // 'basic', 'standard', or 'strict'.
     typeCheckingMode?: string | undefined;
 
     // Indicates that the settings came from VS Code rather than
@@ -146,6 +146,9 @@ export class CommandLineOptions {
 
     // Analyze functions and methods that have no type annotations?
     analyzeUnannotatedFunctions?: boolean;
+
+    // Disable reporting of hint diagnostics with tags?
+    disableTaggedHints?: boolean;
 
     constructor(executionRoot: string, fromVsCodeExtension: boolean) {
         this.executionRoot = executionRoot;

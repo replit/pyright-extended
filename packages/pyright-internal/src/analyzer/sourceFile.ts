@@ -20,16 +20,17 @@ import { DiagnosticSink, TextRangeDiagnosticSink } from '../common/diagnosticSin
 import { ServiceProvider } from '../common/extensibility';
 import { FileSystem } from '../common/fileSystem';
 import { LogTracker, getPathForLogging } from '../common/logTracker';
-import { getFileName, normalizeSlashes, stripFileExtension } from '../common/pathUtils';
+import { stripFileExtension } from '../common/pathUtils';
 import { convertOffsetsToRange, convertTextRangeToRange } from '../common/positionUtils';
 import { ServiceKeys } from '../common/serviceProviderExtensions';
 import * as StringUtils from '../common/stringUtils';
 import { Range, TextRange, getEmptyRange } from '../common/textRange';
 import { TextRangeCollection } from '../common/textRangeCollection';
 import { Duration, timingStats } from '../common/timing';
-import { Localizer } from '../localization/localize';
+import { Uri } from '../common/uri/uri';
+import { LocMessage } from '../localization/localize';
 import { ModuleNode } from '../parser/parseNodes';
-import { IParser, ModuleImport, ParseOptions, ParseResults, Parser } from '../parser/parser';
+import { ModuleImport, ParseOptions, ParseResults, Parser } from '../parser/parser';
 import { IgnoreComment } from '../parser/tokenizer';
 import { Token } from '../parser/tokenizerTypes';
 import { AnalyzerFileInfo, ImportLookup } from './analyzerFileInfo';
@@ -136,6 +137,37 @@ class WriteableData {
     builtinsImport: ImportResult | undefined;
     // True if the file appears to have been deleted.
     isFileDeleted = false;
+
+    debugPrint() {
+        return `WritableData: 
+ diagnosticVersion=${this.diagnosticVersion}, 
+ noCircularDependencyConfirmed=${this.noCircularDependencyConfirmed}, 
+ isBindingNeeded=${this.isBindingNeeded},
+ isBindingInProgress=${this.isBindingInProgress},
+ isCheckingNeeded=${this.isCheckingNeeded},
+ isFileDeleted=${this.isFileDeleted},
+ hitMaxImportDepth=${this.hitMaxImportDepth},
+ parseTreeNeedsCleaning=${this.parseTreeNeedsCleaning},
+ fileContentsVersion=${this.fileContentsVersion},
+ analyzedFileContentsVersion=${this.analyzedFileContentsVersion},
+ clientDocumentVersion=${this.clientDocumentVersion},
+ lastFileContentLength=${this.lastFileContentLength},
+ lastFileContentHash=${this.lastFileContentHash},
+ typeIgnoreAll=${this.typeIgnoreAll},
+ imports=${this.imports?.length},
+ builtinsImport=${this.builtinsImport?.importName},
+ circularDependencies=${this.circularDependencies?.length},
+ parseDiagnostics=${this.parseDiagnostics?.length},
+ commentDiagnostics=${this.commentDiagnostics?.length},
+ bindDiagnostics=${this.bindDiagnostics?.length},
+ checkerDiagnostics=${this.checkerDiagnostics?.length},
+ accumulatedDiagnostics=${this.accumulatedDiagnostics?.length},
+ typeIgnoreLines=${this.typeIgnoreLines?.size},
+ pyrightIgnoreLines=${this.pyrightIgnoreLines?.size},
+ checkTime=${this.checkTime},
+ clientDocumentContents=${this.clientDocumentContents?.length},
+ parseResults=${this.parseResults?.parseTree.length}`;
+    }
 }
 
 export interface SourceFileEditMode {
@@ -149,12 +181,9 @@ export class SourceFile {
     // Console interface to use for debugging.
     private _console: ConsoleInterface;
 
-    // File path unique to this file within the workspace. May not represent
+    // Uri unique to this file within the workspace. May not represent
     // a real file on disk.
-    private readonly _filePath: string;
-
-    // File path on disk. May not be unique.
-    private readonly _realFilePath: string;
+    private readonly _uri: Uri;
 
     // Period-delimited import path for the module.
     private _moduleName: string;
@@ -202,46 +231,42 @@ export class SourceFile {
 
     constructor(
         readonly serviceProvider: ServiceProvider,
-        filePath: string,
+        uri: Uri,
         moduleName: string,
         isThirdPartyImport: boolean,
         isThirdPartyPyTypedPresent: boolean,
         editMode: SourceFileEditMode,
         console?: ConsoleInterface,
         logTracker?: LogTracker,
-        realFilePath?: string,
         ipythonMode?: IPythonMode
     ) {
         this.fileSystem = serviceProvider.get(ServiceKeys.fs);
         this._console = console || new StandardConsole();
         this._editMode = editMode;
-        this._filePath = filePath;
-        this._realFilePath = realFilePath ?? filePath;
+        this._uri = uri;
         this._moduleName = moduleName;
-        this._isStubFile = filePath.endsWith('.pyi');
+        this._isStubFile = uri.hasExtension('.pyi');
         this._isThirdPartyImport = isThirdPartyImport;
         this._isThirdPartyPyTypedPresent = isThirdPartyPyTypedPresent;
-        const fileName = getFileName(filePath);
+        const fileName = uri.fileName;
         this._isTypingStubFile =
-            this._isStubFile &&
-            (this._filePath.endsWith(normalizeSlashes('stdlib/typing.pyi')) || fileName === 'typing_extensions.pyi');
+            this._isStubFile && (this._uri.pathEndsWith('stdlib/typing.pyi') || fileName === 'typing_extensions.pyi');
         this._isTypingExtensionsStubFile = this._isStubFile && fileName === 'typing_extensions.pyi';
-        this._isTypeshedStubFile =
-            this._isStubFile && this._filePath.endsWith(normalizeSlashes('stdlib/_typeshed/__init__.pyi'));
+        this._isTypeshedStubFile = this._isStubFile && this._uri.pathEndsWith('stdlib/_typeshed/__init__.pyi');
 
         this._isBuiltInStubFile = false;
         if (this._isStubFile) {
             if (
-                this._filePath.endsWith(normalizeSlashes('stdlib/collections/__init__.pyi')) ||
-                this._filePath.endsWith(normalizeSlashes('stdlib/asyncio/futures.pyi')) ||
-                this._filePath.endsWith(normalizeSlashes('stdlib/asyncio/tasks.pyi')) ||
-                this._filePath.endsWith(normalizeSlashes('stdlib/builtins.pyi')) ||
-                this._filePath.endsWith(normalizeSlashes('stdlib/_importlib_modulespec.pyi')) ||
-                this._filePath.endsWith(normalizeSlashes('stdlib/dataclasses.pyi')) ||
-                this._filePath.endsWith(normalizeSlashes('stdlib/abc.pyi')) ||
-                this._filePath.endsWith(normalizeSlashes('stdlib/enum.pyi')) ||
-                this._filePath.endsWith(normalizeSlashes('stdlib/queue.pyi')) ||
-                this._filePath.endsWith(normalizeSlashes('stdlib/types.pyi'))
+                this._uri.pathEndsWith('stdlib/collections/__init__.pyi') ||
+                this._uri.pathEndsWith('stdlib/asyncio/futures.pyi') ||
+                this._uri.pathEndsWith('stdlib/asyncio/tasks.pyi') ||
+                this._uri.pathEndsWith('stdlib/builtins.pyi') ||
+                this._uri.pathEndsWith('stdlib/_importlib_modulespec.pyi') ||
+                this._uri.pathEndsWith('stdlib/dataclasses.pyi') ||
+                this._uri.pathEndsWith('stdlib/abc.pyi') ||
+                this._uri.pathEndsWith('stdlib/enum.pyi') ||
+                this._uri.pathEndsWith('stdlib/queue.pyi') ||
+                this._uri.pathEndsWith('stdlib/types.pyi')
             ) {
                 this._isBuiltInStubFile = true;
             }
@@ -252,16 +277,12 @@ export class SourceFile {
         this._ipythonMode = ipythonMode ?? IPythonMode.None;
     }
 
-    getRealFilePath(): string {
-        return this._realFilePath;
-    }
-
     getIPythonMode(): IPythonMode {
         return this._ipythonMode;
     }
 
-    getFilePath(): string {
-        return this._filePath;
+    getUri(): Uri {
+        return this._uri;
     }
 
     getModuleName(): string {
@@ -270,7 +291,7 @@ export class SourceFile {
         }
 
         // Synthesize a module name using the file path.
-        return stripFileExtension(getFileName(this._filePath));
+        return stripFileExtension(this._uri.fileName);
     }
 
     setModuleName(name: string) {
@@ -283,6 +304,10 @@ export class SourceFile {
 
     isStubFile() {
         return this._isStubFile;
+    }
+
+    isTypingStubFile() {
+        return this._isTypingStubFile;
     }
 
     isThirdPartyPyTypedPresent() {
@@ -348,8 +373,8 @@ export class SourceFile {
         // that of the previous contents.
         try {
             // Read the file's contents.
-            if (this.fileSystem.existsSync(this._filePath)) {
-                const fileContents = this.fileSystem.readFileSync(this._filePath, 'utf8');
+            if (this.fileSystem.existsSync(this._uri)) {
+                const fileContents = this.fileSystem.readFileSync(this._uri, 'utf8');
 
                 if (fileContents.length !== this._writableData.lastFileContentLength) {
                     return true;
@@ -435,16 +460,16 @@ export class SourceFile {
         // Otherwise, get content from file system.
         try {
             // Check the file's length before attempting to read its full contents.
-            const fileStat = this.fileSystem.statSync(this._filePath);
+            const fileStat = this.fileSystem.statSync(this._uri);
             if (fileStat.size > _maxSourceFileSize) {
                 this._console.error(
-                    `File length of "${this._filePath}" is ${fileStat.size} ` +
+                    `File length of "${this._uri}" is ${fileStat.size} ` +
                         `which exceeds the maximum supported file size of ${_maxSourceFileSize}`
                 );
                 throw new Error('File larger than max');
             }
 
-            return this.fileSystem.readFileSync(this._filePath, 'utf8');
+            return this.fileSystem.readFileSync(this._uri, 'utf8');
         } catch (error) {
             return undefined;
         }
@@ -550,7 +575,7 @@ export class SourceFile {
     // (or at least cancel) prior to calling again. It returns true if a parse
     // was required and false if the parse information was up to date already.
     parse(configOptions: ConfigOptions, importResolver: ImportResolver, content?: string): boolean {
-        return this._logTracker.log(`parsing: ${this._getPathForLogging(this._filePath)}`, (logState) => {
+        return this._logTracker.log(`parsing: ${this._getPathForLogging(this._uri)}`, (logState) => {
             // If the file is already parsed, we can skip.
             if (!this.isParseRequired()) {
                 logState.suppress();
@@ -578,7 +603,7 @@ export class SourceFile {
                     diagSink.addError(`Source file could not be read`, getEmptyRange());
                     fileContents = '';
 
-                    if (!this.fileSystem.existsSync(this._realFilePath)) {
+                    if (!this.fileSystem.existsSync(this._uri)) {
                         this._writableData.isFileDeleted = true;
                     }
                 }
@@ -588,7 +613,7 @@ export class SourceFile {
                 // Parse the token stream, building the abstract syntax tree.
                 const parseResults = this._parseFile(
                     configOptions,
-                    this._filePath,
+                    this._uri,
                     fileContents!,
                     this._ipythonMode,
                     diagSink
@@ -602,7 +627,7 @@ export class SourceFile {
                     this._writableData.parseResults.tokenizerOutput.pyrightIgnoreLines;
 
                 // Resolve imports.
-                const execEnvironment = configOptions.findExecEnvironment(this._filePath);
+                const execEnvironment = configOptions.findExecEnvironment(this._uri);
                 timingStats.resolveImportsTime.timeOperation(() => {
                     const importResult = this._resolveImports(
                         importResolver,
@@ -618,7 +643,7 @@ export class SourceFile {
 
                 // Is this file in a "strict" path?
                 const useStrict =
-                    configOptions.strict.find((strictFileSpec) => strictFileSpec.regExp.test(this._realFilePath)) !==
+                    configOptions.strict.find((strictFileSpec) => this._uri.matchesRegex(strictFileSpec.regExp)) !==
                     undefined;
 
                 const commentDiags: CommentUtils.CommentDiagnostic[] = [];
@@ -650,7 +675,10 @@ export class SourceFile {
                     (typeof e.message === 'string' ? e.message : undefined) ||
                     JSON.stringify(e);
                 this._console.error(
-                    Localizer.Diagnostic.internalParseError().format({ file: this.getFilePath(), message })
+                    LocMessage.internalParseError().format({
+                        file: this.getUri().toUserVisibleString(),
+                        message,
+                    })
                 );
 
                 // Create dummy parse results.
@@ -678,7 +706,10 @@ export class SourceFile {
 
                 const diagSink = this.createDiagnosticSink();
                 diagSink.addError(
-                    Localizer.Diagnostic.internalParseError().format({ file: this.getFilePath(), message }),
+                    LocMessage.internalParseError().format({
+                        file: this.getUri().toUserVisibleString(),
+                        message,
+                    }),
                     getEmptyRange()
                 );
                 this._writableData.parseDiagnostics = diagSink.fetchAndClear();
@@ -710,7 +741,7 @@ export class SourceFile {
         assert(!this._writableData.isBindingInProgress, 'Bind called while binding in progress');
         assert(this._writableData.parseResults !== undefined, 'Parse results not available');
 
-        return this._logTracker.log(`binding: ${this._getPathForLogging(this._filePath)}`, () => {
+        return this._logTracker.log(`binding: ${this._getPathForLogging(this._uri)}`, () => {
             try {
                 // Perform name binding.
                 timingStats.bindTime.timeOperation(() => {
@@ -747,12 +778,18 @@ export class SourceFile {
                     (typeof e.message === 'string' ? e.message : undefined) ||
                     JSON.stringify(e);
                 this._console.error(
-                    Localizer.Diagnostic.internalBindError().format({ file: this.getFilePath(), message })
+                    LocMessage.internalBindError().format({
+                        file: this.getUri().toUserVisibleString(),
+                        message,
+                    })
                 );
 
                 const diagSink = this.createDiagnosticSink();
                 diagSink.addError(
-                    Localizer.Diagnostic.internalBindError().format({ file: this.getFilePath(), message }),
+                    LocMessage.internalBindError().format({
+                        file: this.getUri().toUserVisibleString(),
+                        message,
+                    }),
                     getEmptyRange()
                 );
                 this._writableData.bindDiagnostics = diagSink.fetchAndClear();
@@ -779,12 +816,12 @@ export class SourceFile {
         dependentFiles?: ParseResults[]
     ) {
         assert(!this.isParseRequired(), 'Check called before parsing');
-        assert(!this.isBindingRequired(), 'Check called before binding');
+        assert(!this.isBindingRequired(), `Check called before binding: state=${this._writableData.debugPrint()}`);
         assert(!this._writableData.isBindingInProgress, 'Check called while binding in progress');
         assert(this.isCheckingRequired(), 'Check called unnecessarily');
         assert(this._writableData.parseResults !== undefined, 'Parse results not available');
 
-        return this._logTracker.log(`checking: ${this._getPathForLogging(this._filePath)}`, () => {
+        return this._logTracker.log(`checking: ${this._getPathForLogging(this._uri)}`, () => {
             try {
                 timingStats.typeCheckerTime.timeOperation(() => {
                     const checkDuration = new Duration();
@@ -804,7 +841,7 @@ export class SourceFile {
                     // get ruff diagnostics
                     const fileContents = this.getOpenFileContents();
                     if (fileContents && this._ipythonMode === IPythonMode.None) {
-                        const diags = getRuffDiagnosticsFromBuffer(this._realFilePath, fileContents);
+                        const diags = getRuffDiagnosticsFromBuffer(this._uri, fileContents);
                         diagList.push(
                             ...diags.map((diag) => {
                                 const rule = diag.getRule();
@@ -826,11 +863,17 @@ export class SourceFile {
                         (typeof e.message === 'string' ? e.message : undefined) ||
                         JSON.stringify(e);
                     this._console.error(
-                        Localizer.Diagnostic.internalTypeCheckingError().format({ file: this.getFilePath(), message })
+                        LocMessage.internalTypeCheckingError().format({
+                            file: this.getUri().toUserVisibleString(),
+                            message,
+                        })
                     );
                     const diagSink = this.createDiagnosticSink();
                     diagSink.addError(
-                        Localizer.Diagnostic.internalTypeCheckingError().format({ file: this.getFilePath(), message }),
+                        LocMessage.internalTypeCheckingError().format({
+                            file: this.getUri().toUserVisibleString(),
+                            message,
+                        }),
                         getEmptyRange()
                     );
 
@@ -854,10 +897,6 @@ export class SourceFile {
 
     test_enableIPythonMode(enable: boolean) {
         this._ipythonMode = enable ? IPythonMode.CellDocs : IPythonMode.None;
-    }
-
-    protected createParser(): IParser {
-        return new Parser();
     }
 
     protected createDiagnosticSink(): DiagnosticSink {
@@ -1004,7 +1043,7 @@ export class SourceFile {
 
                 if (!isUnreachableCodeRange(range) && this._diagnosticRuleSet.enableTypeIgnoreComments) {
                     unnecessaryTypeIgnoreDiags.push(
-                        new Diagnostic(diagCategory, Localizer.Diagnostic.unnecessaryTypeIgnore(), range)
+                        new Diagnostic(diagCategory, LocMessage.unnecessaryTypeIgnore(), range)
                     );
                 }
             }
@@ -1021,7 +1060,7 @@ export class SourceFile {
 
                     if (!isUnreachableCodeRange(range) && this._diagnosticRuleSet.enableTypeIgnoreComments) {
                         unnecessaryTypeIgnoreDiags.push(
-                            new Diagnostic(diagCategory, Localizer.Diagnostic.unnecessaryTypeIgnore(), range)
+                            new Diagnostic(diagCategory, LocMessage.unnecessaryTypeIgnore(), range)
                         );
                     }
                 }
@@ -1040,7 +1079,7 @@ export class SourceFile {
 
                         if (!isUnreachableCodeRange(range)) {
                             unnecessaryTypeIgnoreDiags.push(
-                                new Diagnostic(diagCategory, Localizer.Diagnostic.unnecessaryPyrightIgnore(), range)
+                                new Diagnostic(diagCategory, LocMessage.unnecessaryPyrightIgnore(), range)
                             );
                         }
                     } else {
@@ -1057,7 +1096,7 @@ export class SourceFile {
                                 unnecessaryTypeIgnoreDiags.push(
                                     new Diagnostic(
                                         diagCategory,
-                                        Localizer.Diagnostic.unnecessaryPyrightIgnoreRule().format({
+                                        LocMessage.unnecessaryPyrightIgnoreRule().format({
                                             name: unusedRule.text,
                                         }),
                                         range
@@ -1079,11 +1118,11 @@ export class SourceFile {
             this._writableData.circularDependencies.forEach((cirDep) => {
                 const diag = new Diagnostic(
                     category,
-                    Localizer.Diagnostic.importCycleDetected() +
+                    LocMessage.importCycleDetected() +
                         '\n' +
                         cirDep
                             .getPaths()
-                            .map((path) => '  ' + path)
+                            .map((path) => '  ' + path.toUserVisibleString())
                             .join('\n'),
                     getEmptyRange()
                 );
@@ -1096,7 +1135,7 @@ export class SourceFile {
             diagList.push(
                 new Diagnostic(
                     DiagnosticCategory.Error,
-                    Localizer.Diagnostic.importDepthExceeded().format({ depth: this._writableData.hitMaxImportDepth }),
+                    LocMessage.importDepthExceeded().format({ depth: this._writableData.hitMaxImportDepth }),
                     getEmptyRange()
                 )
             );
@@ -1104,11 +1143,6 @@ export class SourceFile {
 
         // Add diagnostics for comments that match the task list tokens.
         this._addTaskListDiagnostics(configOptions.taskListTokens, diagList);
-
-        // If the file is in the ignore list, clear the diagnostic list.
-        if (configOptions.ignore.find((ignoreFileSpec) => ignoreFileSpec.regExp.test(this._realFilePath))) {
-            diagList = [];
-        }
 
         // If there is a "type: ignore" comment at the top of the file, clear
         // the diagnostic list of all error, warning, and information diagnostics.
@@ -1136,6 +1170,11 @@ export class SourceFile {
                     diag.category === DiagnosticCategory.UnreachableCode ||
                     diag.category === DiagnosticCategory.Deprecated
             );
+        }
+
+        // If the file is in the ignore list, clear the diagnostic list.
+        if (configOptions.ignore.find((ignoreFileSpec) => this._uri.matchesRegex(ignoreFileSpec.regExp))) {
+            diagList = [];
         }
 
         // map to indicate this is a pyrite diagnostic
@@ -1248,13 +1287,13 @@ export class SourceFile {
             futureImports,
             builtinsScope,
             diagnosticSink: analysisDiagnostics,
-            executionEnvironment: configOptions.findExecEnvironment(this._filePath),
+            executionEnvironment: configOptions.findExecEnvironment(this._uri),
             diagnosticRuleSet: this._diagnosticRuleSet,
             fileContents,
             lines: this._writableData.parseResults!.tokenizerOutput.lines,
             typingSymbolAliases: this._writableData.parseResults!.typingSymbolAliases,
             definedConstants: configOptions.defineConstant,
-            filePath: this._filePath,
+            fileUri: this._uri,
             moduleName: this.getModuleName(),
             isStubFile: this._isStubFile,
             isTypingStubFile: this._isTypingStubFile,
@@ -1286,7 +1325,7 @@ export class SourceFile {
         const imports: ImportResult[] = [];
 
         const resolveAndAddIfNotSelf = (nameParts: string[], skipMissingImport = false) => {
-            const importResult = importResolver.resolveImport(this._filePath, execEnv, {
+            const importResult = importResolver.resolveImport(this._uri, execEnv, {
                 leadingDots: 0,
                 nameParts,
                 importedSymbols: undefined,
@@ -1297,7 +1336,7 @@ export class SourceFile {
             }
 
             // Avoid importing module from the module file itself.
-            if (importResult.resolvedPaths.length === 0 || importResult.resolvedPaths[0] !== this._filePath) {
+            if (importResult.resolvedUris.length === 0 || importResult.resolvedUris[0] !== this._uri) {
                 imports.push(importResult);
                 return importResult;
             }
@@ -1319,7 +1358,7 @@ export class SourceFile {
         }
 
         for (const moduleImport of moduleImports) {
-            const importResult = importResolver.resolveImport(this._filePath, execEnv, {
+            const importResult = importResolver.resolveImport(this._uri, execEnv, {
                 leadingDots: moduleImport.leadingDots,
                 nameParts: moduleImport.nameParts,
                 importedSymbols: moduleImport.importedSymbols,
@@ -1352,38 +1391,38 @@ export class SourceFile {
         };
     }
 
-    private _getPathForLogging(filepath: string) {
-        return getPathForLogging(this.fileSystem, filepath);
+    private _getPathForLogging(fileUri: Uri) {
+        return getPathForLogging(this.fileSystem, fileUri);
     }
 
     private _parseFile(
         configOptions: ConfigOptions,
-        filePath: string,
+        fileUri: Uri,
         fileContents: string,
         ipythonMode: IPythonMode,
         diagSink: DiagnosticSink
     ) {
         // Use the configuration options to determine the environment in which
         // this source file will be executed.
-        const execEnvironment = configOptions.findExecEnvironment(filePath);
+        const execEnvironment = configOptions.findExecEnvironment(fileUri);
 
         const parseOptions = new ParseOptions();
         parseOptions.ipythonMode = ipythonMode;
-        if (filePath.endsWith('pyi')) {
+        if (fileUri.pathEndsWith('pyi')) {
             parseOptions.isStubFile = true;
         }
         parseOptions.pythonVersion = execEnvironment.pythonVersion;
         parseOptions.skipFunctionAndClassBody = configOptions.indexGenerationMode ?? false;
 
         // Parse the token stream, building the abstract syntax tree.
-        const parser = this.createParser();
+        const parser = new Parser();
         return parser.parseSourceFile(fileContents, parseOptions, diagSink);
     }
 
     private _fireFileDirtyEvent() {
         this.serviceProvider.tryGet(ServiceKeys.stateMutationListeners)?.forEach((l) => {
             try {
-                l.fileDirty?.(this._filePath);
+                l.onFileDirty?.(this._uri);
             } catch (ex: any) {
                 const console = this.serviceProvider.tryGet(ServiceKeys.console);
                 if (console) {

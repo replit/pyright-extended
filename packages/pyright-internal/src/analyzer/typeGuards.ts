@@ -336,7 +336,13 @@ export function getTypeNarrowingCallback(
                     testExpression.operator === OperatorType.Equals ? isPositiveTest : !isPositiveTest;
 
                 if (ParseTreeUtils.isMatchingExpression(reference, testExpression.leftExpression)) {
-                    const rightTypeResult = evaluator.getTypeOfExpression(testExpression.rightExpression);
+                    // Use speculative mode here to avoid polluting the type cache. This is
+                    // important in cases where evaluation of the right expression creates
+                    // a false dependency on another variable.
+                    const rightTypeResult = evaluator.useSpeculativeMode(testExpression.rightExpression, () => {
+                        return evaluator.getTypeOfExpression(testExpression.rightExpression);
+                    });
+
                     const rightType = rightTypeResult.type;
 
                     if (isClassInstance(rightType) && rightType.literalValue !== undefined) {
@@ -709,7 +715,7 @@ export function getTypeNarrowingCallback(
                     return (
                         type.details.declaredReturnType &&
                         isClassInstance(type.details.declaredReturnType) &&
-                        ClassType.isBuiltIn(type.details.declaredReturnType, 'TypeGuard')
+                        ClassType.isBuiltIn(type.details.declaredReturnType, ['TypeGuard', 'TypeIs'])
                     );
                 };
 
@@ -821,12 +827,12 @@ function getTypeNarrowingCallbackForAliasedCondition(
     // If the reference expression is modified within the scope multiple times,
     // we need to validate that it is not modified between the test expression
     // evaluation and the conditional check.
-    const testExprDecl = getDeclsForLocalVar(evaluator, testExpression, testExpression);
+    const testExprDecl = getDeclsForLocalVar(evaluator, testExpression, testExpression, /* requireUnique */ true);
     if (!testExprDecl || testExprDecl.length !== 1 || testExprDecl[0].type !== DeclarationType.Variable) {
         return undefined;
     }
 
-    const referenceDecls = getDeclsForLocalVar(evaluator, reference, testExpression);
+    const referenceDecls = getDeclsForLocalVar(evaluator, reference, testExpression, /* requireUnique */ false);
     if (!referenceDecls) {
         return undefined;
     }
@@ -869,11 +875,13 @@ function getTypeNarrowingCallbackForAliasedCondition(
 }
 
 // Determines whether the symbol is a local variable or parameter within
-// the current scope.
+// the current scope. If requireUnique is true, there can be only one
+// declaration (assignment) of the symbol, otherwise it is rejected.
 function getDeclsForLocalVar(
     evaluator: TypeEvaluator,
     name: NameNode,
-    reachableFrom: ParseNode
+    reachableFrom: ParseNode,
+    requireUnique: boolean
 ): Declaration[] | undefined {
     const scope = getScopeForNode(name);
     if (scope?.type !== ScopeType.Function && scope?.type !== ScopeType.Module) {
@@ -886,6 +894,10 @@ function getDeclsForLocalVar(
     }
 
     const decls = symbol.getDeclarations();
+    if (requireUnique && decls.length > 1) {
+        return undefined;
+    }
+
     if (
         decls.length === 0 ||
         decls.some((decl) => decl.type !== DeclarationType.Variable && decl.type !== DeclarationType.Parameter)
@@ -1181,7 +1193,7 @@ function narrowTypeForIsEllipsis(evaluator: TypeEvaluator, type: Type, isPositiv
                     : adjustedSubtype;
             }
 
-            const isEllipsis = isClassInstance(subtype) && ClassType.isBuiltIn(subtype, 'ellipsis');
+            const isEllipsis = isClassInstance(subtype) && ClassType.isBuiltIn(subtype, ['EllipsisType', 'ellipsis']);
 
             // See if it's a match for "...".
             if (isEllipsis === isPositiveTest) {
@@ -1223,19 +1235,21 @@ function getIsInstanceClassTypes(argType: Type): (ClassType | TypeVarType | Func
         });
     };
 
-    const addClassTypesRecursive = (subtype: Type, recursionCount = 0) => {
+    const addClassTypesRecursive = (type: Type, recursionCount = 0) => {
         if (recursionCount > maxTypeRecursionCount) {
             return;
         }
 
-        if (isClass(subtype) && TypeBase.isInstance(subtype) && isTupleClass(subtype)) {
-            if (subtype.tupleTypeArguments) {
-                subtype.tupleTypeArguments.forEach((tupleEntry) => {
+        if (isClass(type) && TypeBase.isInstance(type) && isTupleClass(type)) {
+            if (type.tupleTypeArguments) {
+                type.tupleTypeArguments.forEach((tupleEntry) => {
                     addClassTypesRecursive(tupleEntry.type, recursionCount + 1);
                 });
             }
         } else {
-            addClassTypesToList([subtype]);
+            doForEachSubtype(type, (subtype) => {
+                addClassTypesToList([subtype]);
+            });
         }
     };
 
@@ -1325,7 +1339,7 @@ function narrowTypeForIsInstance(
         return transformPossibleRecursiveTypeAlias(subtype);
     });
 
-    expandedTypes = evaluator.expandPromotionTypes(errorNode, type);
+    expandedTypes = evaluator.expandPromotionTypes(errorNode, expandedTypes);
 
     // Filters the varType by the parameters of the isinstance
     // and returns the list of types the varType could be after
@@ -1390,11 +1404,23 @@ function narrowTypeForIsInstance(
                     isClassRelationshipIndeterminate = true;
                 }
 
+                // If both the variable type and the filter type ar generics, we can't
+                // determine the relationship between the two.
+                if (isTypeVar(varType) && isTypeVar(filterType)) {
+                    isClassRelationshipIndeterminate = true;
+                }
+
                 if (isPositiveTest) {
                     if (filterIsSuperclass) {
                         // If the variable type is a subclass of the isinstance filter,
                         // we haven't learned anything new about the variable type.
-                        filteredTypes.push(addConditionToType(concreteVarType, conditions));
+
+                        // If the varType is a Self or type[Self], retain the unnarrowedType.
+                        if (isTypeVar(varType) && varType.details.isSynthesizedSelf) {
+                            filteredTypes.push(addConditionToType(varType, conditions));
+                        } else {
+                            filteredTypes.push(addConditionToType(concreteVarType, conditions));
+                        }
                     } else if (filterIsSubclass) {
                         if (
                             evaluator.assignType(
@@ -1403,7 +1429,9 @@ function narrowTypeForIsInstance(
                                 /* diag */ undefined,
                                 /* destTypeVarContext */ undefined,
                                 /* srcTypeVarContext */ undefined,
-                                AssignTypeFlags.IgnoreTypeVarScope | AssignTypeFlags.IgnoreProtocolAssignmentCheck
+                                AssignTypeFlags.IgnoreTypeVarScope |
+                                    AssignTypeFlags.IgnoreProtocolAssignmentCheck |
+                                    AssignTypeFlags.AllowIsinstanceSpecialForms
                             )
                         ) {
                             // If the variable type is a superclass of the isinstance
@@ -1474,7 +1502,7 @@ function narrowTypeForIsInstance(
                             className,
                             ParseTreeUtils.getClassFullName(errorNode, fileInfo.moduleName, className),
                             fileInfo.moduleName,
-                            fileInfo.filePath,
+                            fileInfo.fileUri,
                             ClassTypeFlags.None,
                             ParseTreeUtils.getTypeSourceId(errorNode),
                             /* declaredMetaclass */ undefined,
@@ -1495,11 +1523,7 @@ function narrowTypeForIsInstance(
                             varType.details.constraints.length === 0
                         ) {
                             newClassType = addConditionToType(newClassType, [
-                                {
-                                    typeVarName: TypeVarType.getNameWithScope(varType),
-                                    constraintIndex: 0,
-                                    isConstrainedTypeVar: false,
-                                },
+                                { typeVar: varType, constraintIndex: 0 },
                             ]) as ClassType;
                         }
 
@@ -1579,7 +1603,16 @@ function narrowTypeForIsInstance(
                         } else {
                             foundSuperclass = true;
                         }
-                    } else if (evaluator.assignType(concreteVarType, filterType)) {
+                    } else if (
+                        evaluator.assignType(
+                            concreteVarType,
+                            filterType,
+                            /* diag */ undefined,
+                            /* destTypeVarContext */ undefined,
+                            /* srcTypeVarContext */ undefined,
+                            AssignTypeFlags.AllowIsinstanceSpecialForms
+                        )
+                    ) {
                         if (isPositiveTest) {
                             filteredTypes.push(filterType);
                         }
@@ -1595,7 +1628,9 @@ function narrowTypeForIsInstance(
         // match, then the original variable type survives the filter.
         if (!isPositiveTest) {
             if (!foundSuperclass || isClassRelationshipIndeterminate) {
-                filteredTypes.push(negativeFallbackType);
+                filteredTypes.push(
+                    isInstanceCheck ? convertToInstantiable(negativeFallbackType) : negativeFallbackType
+                );
             }
         }
 
@@ -1625,10 +1660,20 @@ function narrowTypeForIsInstance(
                 const filterMetaclass = concreteFilterType.details.effectiveMetaclass;
 
                 if (filterMetaclass && isInstantiableClass(filterMetaclass)) {
-                    const isMetaclassOverlap = evaluator.assignType(
+                    let isMetaclassOverlap = evaluator.assignType(
                         metaclassType,
                         ClassType.cloneAsInstance(filterMetaclass)
                     );
+
+                    // Handle the special case where the metaclass for the filter is type.
+                    // This will normally be treated as type[Any], which is compatible with
+                    // any metaclass, but we specifically want to treat type as the class
+                    // type[object] in this case.
+                    if (ClassType.isBuiltIn(filterMetaclass, 'type') && !filterMetaclass.isTypeArgumentExplicit) {
+                        if (!ClassType.isBuiltIn(metaclassType, 'type')) {
+                            isMetaclassOverlap = false;
+                        }
+                    }
 
                     if (isMetaclassOverlap) {
                         if (isPositiveTest) {
@@ -1776,7 +1821,7 @@ function narrowTypeForIsInstance(
                     }
                 }
 
-                if (isClassInstance(subtype) && !isSubtypeMetaclass) {
+                if (isClassInstance(subtype)) {
                     return combineTypes(
                         filterClassType(
                             convertToInstance(unexpandedSubtype),
@@ -2051,6 +2096,15 @@ export function narrowTypeForContainerElementType(evaluator: TypeEvaluator, refe
             return referenceType;
         }
 
+        // Handle the special case where the reference type is a dict or Mapping and
+        // the element type is a TypedDict. In this case, we can't say whether there
+        // is a type overlap, so don't apply narrowing.
+        if (isClassInstance(referenceType) && ClassType.isBuiltIn(referenceType, ['dict', 'Mapping'])) {
+            if (isClassInstance(concreteElementType) && ClassType.isTypedDictClass(concreteElementType)) {
+                return concreteElementType;
+            }
+        }
+
         if (evaluator.assignType(referenceType, concreteElementType)) {
             return concreteElementType;
         }
@@ -2072,7 +2126,7 @@ function narrowTypeForTypedDictKey(
     const narrowedType = mapSubtypes(referenceType, (subtype) => {
         if (isClassInstance(subtype) && ClassType.isTypedDictClass(subtype)) {
             const entries = getTypedDictMembersForClass(evaluator, subtype, /* allowNarrowed */ true);
-            const tdEntry = entries.get(literalKey.literalValue as string);
+            const tdEntry = entries.knownItems.get(literalKey.literalValue as string) ?? entries.extraItems;
 
             if (isPositiveTest) {
                 if (!tdEntry) {
@@ -2128,7 +2182,7 @@ export function narrowTypeForDiscriminatedDictEntryComparison(
     const narrowedType = mapSubtypes(referenceType, (subtype) => {
         if (isClassInstance(subtype) && ClassType.isTypedDictClass(subtype)) {
             const symbolMap = getTypedDictMembersForClass(evaluator, subtype);
-            const tdEntry = symbolMap.get(indexLiteralType.literalValue as string);
+            const tdEntry = symbolMap.knownItems.get(indexLiteralType.literalValue as string);
 
             if (tdEntry && isLiteralTypeOrUnion(tdEntry.valueType)) {
                 if (isPositiveTest) {
@@ -2202,7 +2256,7 @@ export function narrowTypeForDiscriminatedTupleComparison(
 // Attempts to narrow a type based on a comparison (equal or not equal)
 // between a discriminating field that has a declared literal type to a
 // literal value.
-function narrowTypeForDiscriminatedLiteralFieldComparison(
+export function narrowTypeForDiscriminatedLiteralFieldComparison(
     evaluator: TypeEvaluator,
     referenceType: Type,
     memberName: string,
@@ -2224,7 +2278,7 @@ function narrowTypeForDiscriminatedLiteralFieldComparison(
             // Handle the case where the field is a property
             // that has a declared literal return type for its getter.
             if (isClassInstance(subtype) && isClassInstance(memberType) && isProperty(memberType)) {
-                const getterType = memberType.fgetFunction;
+                const getterType = memberType.fgetInfo?.methodType;
                 if (getterType && getterType.details.declaredReturnType) {
                     const getterReturnType = FunctionType.getSpecializedReturnType(getterType);
                     if (getterReturnType) {
@@ -2520,7 +2574,7 @@ function narrowTypeForCallable(
                             className,
                             ParseTreeUtils.getClassFullName(errorNode, fileInfo.moduleName, className),
                             fileInfo.moduleName,
-                            fileInfo.filePath,
+                            fileInfo.fileUri,
                             ClassTypeFlags.None,
                             ParseTreeUtils.getTypeSourceId(errorNode),
                             /* declaredMetaclass */ undefined,

@@ -77,7 +77,7 @@ In addition to assignment-based type narrowing, Pyright supports the following t
 * `isinstance(x, T)` (where T is a type or a tuple of types)
 * `issubclass(x, T)` (where T is a type or a tuple of types)
 * `callable(x)`
-* `f(x)` (where f is a user-defined type guard as defined in [PEP 647](https://www.python.org/dev/peps/pep-0647/))
+* `f(x)` (where f is a user-defined type guard as defined in [PEP 647](https://www.python.org/dev/peps/pep-0647/) or [PEP 742](https://www.python.org/dev/peps/pep-0742))
 * `bool(x)` (where x is any expression that is statically verifiable to be truthy or falsey in all cases)
 * `x` (where x is any expression that is statically verifiable to be truthy or falsey in all cases)
 
@@ -197,7 +197,7 @@ def func4(value: str | int) -> str:
 
 If you later added another color to the `Color` enumeration above (e.g. `YELLOW = 4`), Pyright would detect that `func3` no longer exhausts all members of the enumeration and possibly returns `None`, which violates the declared return type. Likewise, if you modify the type of the `value` parameter in `func4` to expand the union, a similar error will be produced.
 
-This “narrowing for implied else” technique works for all narrowing expressions listed above with the exception of simple falsey/truthy statements and type guards. It is also limited to simple names and doesn’t work with member access or index expressions. These are excluded because they are not generally used for exhaustive checks, and their inclusion would have a significant impact on analysis performance.
+This “narrowing for implied else” technique works for all narrowing expressions listed above with the exception of simple falsey/truthy statements and type guards. It is also limited to simple names and doesn’t work with member access or index expressions, and it requires that the name has a declared type (an explicit type annotation). These limitations are imposed because this functionality would otherwise have significant impact on analysis performance.
 
 
 ### Narrowing Any
@@ -241,19 +241,19 @@ def func(val: int | None):
         inner_2()
 ```
 
-### Constrained Type Variables
+### Value-Constrained Type Variables
 
-When a TypeVar is defined, it can be constrained to two or more types.
+When a TypeVar is defined, it can be constrained to two or more types (values).
 
 ```python
 # Example of unconstrained type variable
 _T = TypeVar("_T")
 
-# Example of constrained type variables
+# Example of value-constrained type variables
 _StrOrFloat = TypeVar("_StrOrFloat", str, float)
 ```
 
-When a constrained TypeVar appears more than once within a function signature, the type provided for all instances of the TypeVar must be consistent.
+When a value-constrained TypeVar appears more than once within a function signature, the type provided for all instances of the TypeVar must be consistent.
 
 ```python
 def add(a: _StrOrFloat, b: _StrOrFloat) -> _StrOrFloat:
@@ -455,7 +455,7 @@ class Child(Parent):
     y = None  # Error: Incompatible type
 ```
 
-The derived class can redeclare the type of a class or instance variable. If `reportIncompatibleVariableOverride` is enabled, the redeclared type must be the same as the type declared by the parent class or a subtype thereof.
+The derived class can redeclare the type of a class or instance variable. If `reportIncompatibleVariableOverride` is enabled, the redeclared type must be the same as the type declared by the parent class. If the variable is immutable (as in a frozen `dataclass`), it is considered covariant, and it can be redeclared as a subtype of the type declared by the parent class.
 
 ```python
 class Parent:
@@ -463,7 +463,7 @@ class Parent:
     y: int
 
 class Child(Parent):
-    x: int  # This is OK because 'int' is a subtype of 'int | str | None'
+    x: int  # Type error: 'x' cannot be redeclared with subtype because variable is mutable and therefore invariant
     y: str  # Type error: 'y' cannot be redeclared with an incompatible type
 ```
 

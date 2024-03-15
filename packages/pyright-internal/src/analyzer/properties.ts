@@ -9,7 +9,7 @@
 
 import { DiagnosticAddendum } from '../common/diagnostic';
 import { DiagnosticRule } from '../common/diagnosticRules';
-import { Localizer } from '../localization/localize';
+import { LocAddendum, LocMessage } from '../localization/localize';
 import { DecoratorNode, FunctionNode, ParameterCategory, ParseNode } from '../parser/parseNodes';
 import { getFileInfo } from './analyzerNodeInfo';
 import { getClassFullName, getTypeAnnotationForParameter, getTypeSourceId } from './parseTreeUtils';
@@ -45,12 +45,7 @@ import { TypeVarContext } from './typeVarContext';
 
 export function validatePropertyMethod(evaluator: TypeEvaluator, method: FunctionType, errorNode: ParseNode) {
     if (FunctionType.isStaticMethod(method)) {
-        evaluator.addDiagnostic(
-            getFileInfo(errorNode).diagnosticRuleSet.reportGeneralTypeIssues,
-            DiagnosticRule.reportGeneralTypeIssues,
-            Localizer.Diagnostic.propertyStaticMethod(),
-            errorNode
-        );
+        evaluator.addDiagnostic(DiagnosticRule.reportGeneralTypeIssues, LocMessage.propertyStaticMethod(), errorNode);
     }
 }
 
@@ -70,13 +65,14 @@ export function createProperty(
         decoratorType.details.name,
         getClassFullName(decoratorNode, fileInfo.moduleName, `__property_${fget.details.name}`),
         fileInfo.moduleName,
-        fileInfo.filePath,
+        fileInfo.fileUri,
         ClassTypeFlags.PropertyClass | ClassTypeFlags.BuiltInClass,
         typeSourceId,
         /* declaredMetaclass */ undefined,
         isInstantiableClass(typeMetaclass) ? typeMetaclass : UnknownType.create()
     );
 
+    propertyClass.details.declaration = decoratorType.details.declaration;
     propertyClass.details.typeVarScopeId = decoratorType.details.typeVarScopeId;
     const objectType = evaluator.getBuiltInType(decoratorNode, 'object');
     propertyClass.details.baseClasses.push(isInstantiableClass(objectType) ? objectType : UnknownType.create());
@@ -101,10 +97,10 @@ export function createProperty(
     updateGetSetDelMethodForClonedProperty(evaluator, propertyObject);
 
     // Fill in the fget method.
-    propertyObject.fgetFunction = FunctionType.cloneWithNewFlags(
-        fget,
-        fget.details.flags | FunctionTypeFlags.StaticMethod
-    );
+    propertyObject.fgetInfo = {
+        methodType: FunctionType.cloneWithNewFlags(fget, fget.details.flags | FunctionTypeFlags.StaticMethod),
+        classType: fget.details.methodClass,
+    };
 
     if (FunctionType.isClassMethod(fget)) {
         propertyClass.details.flags |= ClassTypeFlags.ClassProperty;
@@ -152,9 +148,8 @@ export function clonePropertyWithSetter(
                     const diag = new DiagnosticAddendum();
                     if (!evaluator.assignType(fgetType, fsetType, diag)) {
                         evaluator.addDiagnostic(
-                            fileInfo.diagnosticRuleSet.reportPropertyTypeMismatch,
                             DiagnosticRule.reportPropertyTypeMismatch,
-                            Localizer.Diagnostic.setterGetterTypeMismatch() + diag.getString(),
+                            LocMessage.setterGetterTypeMismatch() + diag.getString(),
                             typeAnnotation
                         );
                     }
@@ -171,19 +166,21 @@ export function clonePropertyWithSetter(
         classType.details.name,
         classType.details.fullName,
         classType.details.moduleName,
-        getFileInfo(errorNode).filePath,
+        getFileInfo(errorNode).fileUri,
         flagsToClone,
         classType.details.typeSourceId,
         classType.details.declaredMetaclass,
         classType.details.effectiveMetaclass
     );
+
+    propertyClass.details.declaration = classType.details.declaration;
     propertyClass.details.typeVarScopeId = classType.details.typeVarScopeId;
     const objectType = evaluator.getBuiltInType(errorNode, 'object');
     propertyClass.details.baseClasses.push(isInstantiableClass(objectType) ? objectType : UnknownType.create());
     computeMroLinearization(propertyClass);
 
-    propertyClass.fgetFunction = classType.fgetFunction;
-    propertyClass.fdelFunction = classType.fdelFunction;
+    propertyClass.fgetInfo = classType.fgetInfo;
+    propertyClass.fdelInfo = classType.fdelInfo;
     propertyClass.isAsymmetricDescriptor = isAsymmetricDescriptor;
     const propertyObject = ClassType.cloneAsInstance(propertyClass);
 
@@ -199,10 +196,10 @@ export function clonePropertyWithSetter(
     updateGetSetDelMethodForClonedProperty(evaluator, propertyObject);
 
     // Fill in the new fset method.
-    propertyObject.fsetFunction = FunctionType.cloneWithNewFlags(
-        fset,
-        fset.details.flags | FunctionTypeFlags.StaticMethod
-    );
+    propertyObject.fsetInfo = {
+        methodType: FunctionType.cloneWithNewFlags(fset, fset.details.flags | FunctionTypeFlags.StaticMethod),
+        classType: fset.details.methodClass,
+    };
 
     // Fill in the __set__ method.
     addSetMethodToPropertySymbolTable(evaluator, propertyObject, fset);
@@ -228,19 +225,21 @@ export function clonePropertyWithDeleter(
         classType.details.name,
         classType.details.fullName,
         classType.details.moduleName,
-        getFileInfo(errorNode).filePath,
+        getFileInfo(errorNode).fileUri,
         classType.details.flags,
         classType.details.typeSourceId,
         classType.details.declaredMetaclass,
         classType.details.effectiveMetaclass
     );
+
+    propertyClass.details.declaration = classType.details.declaration;
     propertyClass.details.typeVarScopeId = classType.details.typeVarScopeId;
     const objectType = evaluator.getBuiltInType(errorNode, 'object');
     propertyClass.details.baseClasses.push(isInstantiableClass(objectType) ? objectType : UnknownType.create());
     computeMroLinearization(propertyClass);
 
-    propertyClass.fgetFunction = classType.fgetFunction;
-    propertyClass.fsetFunction = classType.fsetFunction;
+    propertyClass.fgetInfo = classType.fgetInfo;
+    propertyClass.fsetInfo = classType.fsetInfo;
     const propertyObject = ClassType.cloneAsInstance(propertyClass);
     propertyClass.isAsymmetricDescriptor = classType.isAsymmetricDescriptor ?? false;
 
@@ -256,10 +255,10 @@ export function clonePropertyWithDeleter(
     updateGetSetDelMethodForClonedProperty(evaluator, propertyObject);
 
     // Fill in the fdel method.
-    propertyObject.fdelFunction = FunctionType.cloneWithNewFlags(
-        fdel,
-        fdel.details.flags | FunctionTypeFlags.StaticMethod
-    );
+    propertyObject.fdelInfo = {
+        methodType: FunctionType.cloneWithNewFlags(fdel, fdel.details.flags | FunctionTypeFlags.StaticMethod),
+        classType: fdel.details.methodClass,
+    };
 
     // Fill in the __delete__ method.
     addDelMethodToPropertySymbolTable(evaluator, propertyObject, fdel);
@@ -432,19 +431,19 @@ function addDelMethodToPropertySymbolTable(evaluator: TypeEvaluator, propertyObj
 }
 
 function updateGetSetDelMethodForClonedProperty(evaluator: TypeEvaluator, propertyObject: ClassType) {
-    const fgetType = propertyObject.fgetFunction;
-    if (fgetType && isFunction(fgetType)) {
-        addGetMethodToPropertySymbolTable(evaluator, propertyObject, fgetType);
+    const fgetInfo = propertyObject.fgetInfo;
+    if (fgetInfo && isFunction(fgetInfo.methodType)) {
+        addGetMethodToPropertySymbolTable(evaluator, propertyObject, fgetInfo.methodType);
     }
 
-    const fsetType = propertyObject.fsetFunction;
-    if (fsetType && isFunction(fsetType)) {
-        addSetMethodToPropertySymbolTable(evaluator, propertyObject, fsetType);
+    const fsetInfo = propertyObject.fsetInfo;
+    if (fsetInfo && isFunction(fsetInfo.methodType)) {
+        addSetMethodToPropertySymbolTable(evaluator, propertyObject, fsetInfo.methodType);
     }
 
-    const fdelType = propertyObject.fdelFunction;
-    if (fdelType && isFunction(fdelType)) {
-        addDelMethodToPropertySymbolTable(evaluator, propertyObject, fdelType);
+    const fdelInfo = propertyObject.fdelInfo;
+    if (fdelInfo && isFunction(fdelInfo.methodType)) {
+        addDelMethodToPropertySymbolTable(evaluator, propertyObject, fdelInfo.methodType);
     }
 }
 
@@ -492,19 +491,19 @@ export function assignProperty(
         incompatibleDiagMsg: () => string;
     }[] = [
         {
-            getFunction: (c: ClassType) => c.fgetFunction,
-            missingDiagMsg: Localizer.DiagnosticAddendum.missingGetter,
-            incompatibleDiagMsg: Localizer.DiagnosticAddendum.incompatibleGetter,
+            getFunction: (c: ClassType) => c.fgetInfo?.methodType,
+            missingDiagMsg: LocAddendum.missingGetter,
+            incompatibleDiagMsg: LocAddendum.incompatibleGetter,
         },
         {
-            getFunction: (c: ClassType) => c.fsetFunction,
-            missingDiagMsg: Localizer.DiagnosticAddendum.missingSetter,
-            incompatibleDiagMsg: Localizer.DiagnosticAddendum.incompatibleSetter,
+            getFunction: (c: ClassType) => c.fsetInfo?.methodType,
+            missingDiagMsg: LocAddendum.missingSetter,
+            incompatibleDiagMsg: LocAddendum.incompatibleSetter,
         },
         {
-            getFunction: (c: ClassType) => c.fdelFunction,
-            missingDiagMsg: Localizer.DiagnosticAddendum.missingDeleter,
-            incompatibleDiagMsg: Localizer.DiagnosticAddendum.incompatibleDeleter,
+            getFunction: (c: ClassType) => c.fdelInfo?.methodType,
+            missingDiagMsg: LocAddendum.missingDeleter,
+            incompatibleDiagMsg: LocAddendum.incompatibleDeleter,
         },
     ];
 

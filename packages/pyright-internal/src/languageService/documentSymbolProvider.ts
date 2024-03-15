@@ -10,23 +10,24 @@
 
 import { CancellationToken, DocumentSymbol, Location, SymbolInformation } from 'vscode-languageserver';
 
+import { getFileInfo } from '../analyzer/analyzerNodeInfo';
 import { throwIfCancellationRequested } from '../common/cancellationUtils';
+import { ProgramView } from '../common/extensibility';
+import { ReadOnlyFileSystem } from '../common/fileSystem';
+import { Uri } from '../common/uri/uri';
+import { encodeUri } from '../common/uri/uriUtils';
 import { ParseResults } from '../parser/parser';
 import { IndexSymbolData, SymbolIndexer } from './symbolIndexer';
-import { ProgramView } from '../common/extensibility';
-import { getFileInfo } from '../analyzer/analyzerNodeInfo';
-import { convertPathToUri } from '../common/pathUtils';
 
 export function convertToFlatSymbols(
     program: ProgramView,
-    filePath: string,
+    uri: Uri,
     symbolList: DocumentSymbol[]
 ): SymbolInformation[] {
     const flatSymbols: SymbolInformation[] = [];
-    const documentUri = convertPathToUri(program.fileSystem, filePath);
 
     for (const symbol of symbolList) {
-        _appendToFlatSymbolsRecursive(flatSymbols, documentUri, symbol);
+        _appendToFlatSymbolsRecursive(program.fileSystem, flatSymbols, uri, symbol);
     }
 
     return flatSymbols;
@@ -37,11 +38,11 @@ export class DocumentSymbolProvider {
 
     constructor(
         protected readonly program: ProgramView,
-        protected readonly filePath: string,
+        protected readonly uri: Uri,
         private readonly _supportHierarchicalDocumentSymbol: boolean,
         private readonly _token: CancellationToken
     ) {
-        this._parseResults = this.program.getParseResults(this.filePath);
+        this._parseResults = this.program.getParseResults(this.uri);
     }
 
     getSymbols(): DocumentSymbol[] | SymbolInformation[] {
@@ -54,12 +55,12 @@ export class DocumentSymbolProvider {
             return symbolList;
         }
 
-        return convertToFlatSymbols(this.program, this.filePath, symbolList);
+        return convertToFlatSymbols(this.program, this.uri, symbolList);
     }
 
     protected getHierarchicalSymbols() {
         const symbolList: DocumentSymbol[] = [];
-        const parseResults = this.program.getParseResults(this.filePath);
+        const parseResults = this.program.getParseResults(this.uri);
         if (!parseResults) {
             return symbolList;
         }
@@ -114,15 +115,16 @@ export class DocumentSymbolProvider {
 }
 
 function _appendToFlatSymbolsRecursive(
+    fs: ReadOnlyFileSystem,
     flatSymbols: SymbolInformation[],
-    documentUri: string,
+    documentUri: Uri,
     symbol: DocumentSymbol,
     parent?: DocumentSymbol
 ) {
     const flatSymbol: SymbolInformation = {
         name: symbol.name,
         kind: symbol.kind,
-        location: Location.create(documentUri, symbol.range),
+        location: Location.create(encodeUri(fs, documentUri), symbol.range),
     };
 
     if (symbol.tags) {
@@ -137,7 +139,7 @@ function _appendToFlatSymbolsRecursive(
 
     if (symbol.children) {
         for (const child of symbol.children) {
-            _appendToFlatSymbolsRecursive(flatSymbols, documentUri, child, symbol);
+            _appendToFlatSymbolsRecursive(fs, flatSymbols, documentUri, child, symbol);
         }
     }
 }

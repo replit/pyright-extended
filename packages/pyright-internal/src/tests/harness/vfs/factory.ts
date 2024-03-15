@@ -8,6 +8,7 @@
 
 import * as pathConsts from '../../../common/pathConsts';
 import { combinePaths, getDirectoryPath, normalizeSlashes, resolvePaths } from '../../../common/pathUtils';
+import { Uri } from '../../../common/uri/uri';
 import { GlobalMetadataOptionNames } from '../fourslash/fourSlashTypes';
 import { TestHost } from '../testHost';
 import { bufferFrom } from '../utils';
@@ -39,15 +40,13 @@ export interface FileSystemCreateOptions extends FileSystemOptions {
     documents?: readonly TextDocument[];
 }
 
-export const libFolder = combinePaths(
-    MODULE_PATH,
-    normalizeSlashes(combinePaths(pathConsts.lib, pathConsts.sitePackages))
+export const libFolder = Uri.file(
+    combinePaths(MODULE_PATH, normalizeSlashes(combinePaths(pathConsts.lib, pathConsts.sitePackages)))
 );
-export const distlibFolder = combinePaths(
-    MODULE_PATH,
-    normalizeSlashes(combinePaths(pathConsts.lib, pathConsts.distPackages))
+export const distlibFolder = Uri.file(
+    combinePaths(MODULE_PATH, normalizeSlashes(combinePaths(pathConsts.lib, pathConsts.distPackages)))
 );
-export const typeshedFolder = combinePaths(MODULE_PATH, normalizeSlashes(pathConsts.typeshedFallback));
+export const typeshedFolder = Uri.file(combinePaths(MODULE_PATH, normalizeSlashes(pathConsts.typeshedFallback)));
 export const srcFolder = normalizeSlashes('/.src');
 
 /**
@@ -74,7 +73,7 @@ export function createFromFileSystem(
 ) {
     const typeshedPath = meta ? meta[GlobalMetadataOptionNames.typeshed] : undefined;
     if (typeshedPath) {
-        mountPaths.set(typeshedFolder, typeshedPath);
+        mountPaths.set(typeshedFolder.key, typeshedPath);
     }
 
     const fs = getBuiltLocal(host, ignoreCase, cwd, mountPaths).shadow();
@@ -88,12 +87,12 @@ export function createFromFileSystem(
     }
     if (cwd) {
         fs.mkdirpSync(cwd);
-        fs.chdir(cwd);
+        fs.chdir(Uri.file(cwd));
     }
     if (documents) {
         for (const document of documents) {
             fs.mkdirpSync(getDirectoryPath(document.file));
-            fs.writeFileSync(document.file, document.text, 'utf8');
+            fs.writeFileSync(Uri.file(document.file), document.text, 'utf8');
             fs.filemeta(document.file).set('document', document);
             // Add symlinks
             const symlink = document.meta.get('symlink');
@@ -128,8 +127,8 @@ function getBuiltLocal(
     mountPaths: Map<string, string>
 ): TestFileSystem {
     // Ensure typeshed folder
-    if (!mountPaths.has(typeshedFolder)) {
-        mountPaths.set(typeshedFolder, resolvePaths(host.getWorkspaceRoot(), pathConsts.typeshedFallback));
+    if (!mountPaths.has(typeshedFolder.key)) {
+        mountPaths.set(typeshedFolder.key, resolvePaths(host.getWorkspaceRoot(), pathConsts.typeshedFallback));
     }
 
     if (!canReuseCache(host, mountPaths)) {

@@ -14,6 +14,7 @@ import * as AnalyzerNodeInfo from '../analyzer/analyzerNodeInfo';
 import { ScopeType } from '../analyzer/scope';
 import { ConfigOptions } from '../common/configOptions';
 import { PythonVersion } from '../common/pythonVersion';
+import { Uri } from '../common/uri/uri';
 import * as TestUtils from './testUtils';
 
 test('Unreachable1', () => {
@@ -600,7 +601,7 @@ test('Expression6', () => {
 test('Expression7', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['expression7.py']);
 
-    TestUtils.validateResults(analysisResults, 0);
+    TestUtils.validateResults(analysisResults, 2);
 });
 
 test('Expression8', () => {
@@ -628,7 +629,7 @@ test('Unpack2', () => {
 });
 
 test('Unpack3', () => {
-    const configOptions = new ConfigOptions('.');
+    const configOptions = new ConfigOptions(Uri.empty());
 
     // Analyze with Python 3.7 settings.
     configOptions.defaultPythonVersion = PythonVersion.V3_7;
@@ -642,7 +643,7 @@ test('Unpack3', () => {
 });
 
 test('Unpack4', () => {
-    const configOptions = new ConfigOptions('.');
+    const configOptions = new ConfigOptions(Uri.empty());
 
     // Analyze with Python 3.8 settings.
     configOptions.defaultPythonVersion = PythonVersion.V3_8;
@@ -656,7 +657,7 @@ test('Unpack4', () => {
 });
 
 test('Unpack4', () => {
-    const configOptions = new ConfigOptions('.');
+    const configOptions = new ConfigOptions(Uri.empty());
 
     configOptions.defaultPythonVersion = PythonVersion.V3_11;
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['unpack5.py'], configOptions);
@@ -684,7 +685,7 @@ test('Lambda3', () => {
 test('Lambda4', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['lambda4.py']);
 
-    TestUtils.validateResults(analysisResults, 1);
+    TestUtils.validateResults(analysisResults, 2);
 });
 
 test('Lambda5', () => {
@@ -735,6 +736,24 @@ test('Lambda12', () => {
     TestUtils.validateResults(analysisResults, 0);
 });
 
+test('Lambda13', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['lambda13.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('Lambda14', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['lambda14.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('Lambda15', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['lambda15.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
 test('Call1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['call1.py']);
 
@@ -744,11 +763,11 @@ test('Call1', () => {
 test('Call2', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['call2.py']);
 
-    TestUtils.validateResults(analysisResults, 16);
+    TestUtils.validateResults(analysisResults, 17);
 });
 
 test('Call3', () => {
-    const configOptions = new ConfigOptions('.');
+    const configOptions = new ConfigOptions(Uri.empty());
 
     // Analyze with Python 3.7 settings. This will generate more errors.
     configOptions.defaultPythonVersion = PythonVersion.V3_7;
@@ -776,7 +795,7 @@ test('Call5', () => {
 test('Call6', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['call6.py']);
 
-    TestUtils.validateResults(analysisResults, 2);
+    TestUtils.validateResults(analysisResults, 4);
 });
 
 test('Call7', () => {
@@ -813,6 +832,18 @@ test('Call12', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['call12.py']);
 
     TestUtils.validateResults(analysisResults, 2);
+});
+
+test('Call13', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['call13.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('Call14', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['call14.py']);
+
+    TestUtils.validateResults(analysisResults, 5);
 });
 
 test('Function1', () => {
@@ -876,12 +907,12 @@ test('KwargsUnpack1', () => {
 });
 
 test('FunctionMember1', () => {
-    // Analyze with reportFunctionMemberAccess disabled.
-    const analysisResult1 = TestUtils.typeAnalyzeSampleFiles(['functionMember1.py']);
+    const configOptions = new ConfigOptions(Uri.empty());
+
+    configOptions.diagnosticRuleSet.reportFunctionMemberAccess = 'none';
+    const analysisResult1 = TestUtils.typeAnalyzeSampleFiles(['functionMember1.py'], configOptions);
     TestUtils.validateResults(analysisResult1, 0);
 
-    // Analyze with reportFunctionMemberAccess enabled.
-    const configOptions = new ConfigOptions('.');
     configOptions.diagnosticRuleSet.reportFunctionMemberAccess = 'error';
     const analysisResult2 = TestUtils.typeAnalyzeSampleFiles(['functionMember1.py'], configOptions);
     TestUtils.validateResults(analysisResult2, 3);
@@ -966,7 +997,7 @@ test('AnnotatedVar6', () => {
 });
 
 test('AnnotatedVar7', () => {
-    const configOptions = new ConfigOptions('.');
+    const configOptions = new ConfigOptions(Uri.empty());
 
     const analysisResults1 = TestUtils.typeAnalyzeSampleFiles(['annotatedVar7.py'], configOptions);
     TestUtils.validateResults(analysisResults1, 0);
@@ -1036,6 +1067,12 @@ test('CapturedVariable1', () => {
     TestUtils.validateResults(analysisResults, 5);
 });
 
+test('CapturedVariable2', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['capturedVariable2.py']);
+
+    TestUtils.validateResults(analysisResults, 2);
+});
+
 test('Property1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['property1.py']);
 
@@ -1067,7 +1104,7 @@ test('Property5', () => {
 });
 
 test('Property6', () => {
-    const configOptions = new ConfigOptions('.');
+    const configOptions = new ConfigOptions(Uri.empty());
 
     // Analyze with reportPropertyTypeMismatch enabled.
     configOptions.diagnosticRuleSet.reportPropertyTypeMismatch = 'error';
@@ -1107,7 +1144,7 @@ test('Property10', () => {
 test('Property11', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['property11.py']);
 
-    TestUtils.validateResults(analysisResults, 2);
+    TestUtils.validateResults(analysisResults, 1);
 });
 
 test('Property12', () => {
@@ -1132,6 +1169,12 @@ test('Property15', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['property15.py']);
 
     TestUtils.validateResults(analysisResults, 0);
+});
+
+test('Property16', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['property16.py']);
+
+    TestUtils.validateResults(analysisResults, 1);
 });
 
 test('Operator1', () => {
@@ -1194,8 +1237,14 @@ test('Operator10', () => {
     TestUtils.validateResults(analysisResults, 1);
 });
 
+test('Operator11', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['operator11.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
 test('Optional1', () => {
-    const configOptions = new ConfigOptions('.');
+    const configOptions = new ConfigOptions(Uri.empty());
 
     // Disable diagnostics.
     configOptions.diagnosticRuleSet.reportOptionalSubscript = 'none';
@@ -1229,7 +1278,7 @@ test('Optional1', () => {
 });
 
 test('Optional2', () => {
-    const configOptions = new ConfigOptions('.');
+    const configOptions = new ConfigOptions(Uri.empty());
 
     // Disable diagnostics.
     configOptions.diagnosticRuleSet.reportOptionalOperand = 'none';
@@ -1245,19 +1294,19 @@ test('Optional2', () => {
 test('Tuple1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['tuple1.py']);
 
-    TestUtils.validateResults(analysisResults, 15);
+    TestUtils.validateResults(analysisResults, 24);
 });
 
 test('Tuple2', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['tuple2.py']);
 
-    TestUtils.validateResults(analysisResults, 3);
+    TestUtils.validateResults(analysisResults, 5);
 });
 
 test('Tuple3', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['tuple3.py']);
 
-    TestUtils.validateResults(analysisResults, 2);
+    TestUtils.validateResults(analysisResults, 5);
 });
 
 test('Tuple4', () => {
@@ -1347,7 +1396,7 @@ test('Tuple18', () => {
 test('NamedTuple1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['namedTuple1.py']);
 
-    TestUtils.validateResults(analysisResults, 12);
+    TestUtils.validateResults(analysisResults, 13);
 });
 
 test('NamedTuple2', () => {
@@ -1377,7 +1426,7 @@ test('NamedTuple5', () => {
 test('NamedTuple6', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['namedTuple6.py']);
 
-    TestUtils.validateResults(analysisResults, 3);
+    TestUtils.validateResults(analysisResults, 6);
 });
 
 test('NamedTuple7', () => {
@@ -1396,6 +1445,12 @@ test('NamedTuple9', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['namedTuple9.py']);
 
     TestUtils.validateResults(analysisResults, 3);
+});
+
+test('NamedTuple10', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['namedTuple10.py']);
+
+    TestUtils.validateResults(analysisResults, 1);
 });
 
 test('Slots1', () => {
@@ -1417,7 +1472,7 @@ test('Slots3', () => {
 });
 
 test('Parameters1', () => {
-    const configOptions = new ConfigOptions('.');
+    const configOptions = new ConfigOptions(Uri.empty());
 
     configOptions.diagnosticRuleSet.reportMissingParameterType = 'none';
     const analysisResults1 = TestUtils.typeAnalyzeSampleFiles(['parameters1.py'], configOptions);
@@ -1431,7 +1486,7 @@ test('Parameters1', () => {
 test('Self1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['self1.py']);
 
-    TestUtils.validateResults(analysisResults, 12);
+    TestUtils.validateResults(analysisResults, 15);
 });
 
 test('Self2', () => {
@@ -1489,7 +1544,7 @@ test('Self10', () => {
 });
 
 test('UnusedVariable1', () => {
-    const configOptions = new ConfigOptions('.');
+    const configOptions = new ConfigOptions(Uri.empty());
 
     configOptions.diagnosticRuleSet.reportUnusedVariable = 'none';
     const analysisResults1 = TestUtils.typeAnalyzeSampleFiles(['unusedVariable1.py'], configOptions);
@@ -1557,23 +1612,23 @@ test('TotalOrdering1', () => {
 test('TupleUnpack1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['tupleUnpack1.py']);
 
-    TestUtils.validateResults(analysisResults, 6);
+    TestUtils.validateResults(analysisResults, 5);
 });
 
 test('TupleUnpack2', () => {
-    const configOptions = new ConfigOptions('.');
+    const configOptions = new ConfigOptions(Uri.empty());
 
     configOptions.defaultPythonVersion = PythonVersion.V3_10;
     const analysisResults1 = TestUtils.typeAnalyzeSampleFiles(['tupleUnpack2.py'], configOptions);
-    TestUtils.validateResults(analysisResults1, 20);
+    TestUtils.validateResults(analysisResults1, 18);
 
     configOptions.defaultPythonVersion = PythonVersion.V3_11;
     const analysisResults2 = TestUtils.typeAnalyzeSampleFiles(['tupleUnpack2.py'], configOptions);
-    TestUtils.validateResults(analysisResults2, 5);
+    TestUtils.validateResults(analysisResults2, 4);
 });
 
 test('TupleUnpack3', () => {
-    const configOptions = new ConfigOptions('.');
+    const configOptions = new ConfigOptions(Uri.empty());
 
     configOptions.defaultPythonVersion = PythonVersion.V3_11;
     const analysisResults1 = TestUtils.typeAnalyzeSampleFiles(['tupleUnpack3.py'], configOptions);
@@ -1653,7 +1708,7 @@ test('Dictionary4', () => {
 });
 
 test('StaticExpression1', () => {
-    const configOptions = new ConfigOptions('.');
+    const configOptions = new ConfigOptions(Uri.empty());
 
     configOptions.defaultPythonVersion = PythonVersion.V3_8;
     configOptions.defaultPythonPlatform = 'windows';
@@ -1684,4 +1739,22 @@ test('SpecialForm1', () => {
     const analysisResults = TestUtils.typeAnalyzeSampleFiles(['specialForm1.py']);
 
     TestUtils.validateResults(analysisResults, 4);
+});
+
+test('SpecialForm2', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['specialForm2.py']);
+
+    TestUtils.validateResults(analysisResults, 0);
+});
+
+test('SpecialForm3', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['specialForm3.py']);
+
+    TestUtils.validateResults(analysisResults, 22);
+});
+
+test('SpecialForm4', () => {
+    const analysisResults = TestUtils.typeAnalyzeSampleFiles(['specialForm4.py']);
+
+    TestUtils.validateResults(analysisResults, 72);
 });

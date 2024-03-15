@@ -77,12 +77,12 @@ function checkSignatureHelp(code: string, expects: boolean) {
     const state = parseAndGetTestState(code).state;
     const marker = state.getMarkerByName('marker');
 
-    const parseResults = state.workspace.service.getParseResult(marker.fileName)!;
+    const parseResults = state.workspace.service.getParseResult(marker.fileUri)!;
     const position = convertOffsetToPosition(marker.position, parseResults.tokenizerOutput.lines);
 
     const actual = new SignatureHelpProvider(
         state.workspace.service.test_program,
-        marker.fileName,
+        marker.fileUri,
         position,
         MarkupKind.Markdown,
         /*hasSignatureLabelOffsetCapability*/ true,

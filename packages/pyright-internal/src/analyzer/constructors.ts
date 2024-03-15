@@ -14,9 +14,8 @@
 
 import { appendArray } from '../common/collectionUtils';
 import { DiagnosticRule } from '../common/diagnosticRules';
-import { Localizer } from '../localization/localize';
+import { LocMessage } from '../localization/localize';
 import { ArgumentCategory, ExpressionNode, ParameterCategory } from '../parser/parseNodes';
-import { getFileInfo } from './analyzerNodeInfo';
 import { populateTypeVarContextBasedOnExpectedType } from './constraintSolver';
 import { applyConstructorTransform, hasConstructorTransform } from './constructorTransform';
 import { getTypeVarScopesForNode } from './parseTreeUtils';
@@ -30,7 +29,6 @@ import {
     doForEachSubtype,
     ensureFunctionSignaturesAreUnique,
     getTypeVarScopeId,
-    isPartlyUnknown,
     isTupleClass,
     lookUpClassMember,
     mapSubtypes,
@@ -45,11 +43,13 @@ import {
     InheritanceChain,
     OverloadedFunctionType,
     Type,
+    TypeVarType,
     UnknownType,
     isAny,
     isAnyOrUnknown,
     isClassInstance,
     isFunction,
+    isInstantiableClass,
     isNever,
     isOverloadedFunction,
     isTypeVar,
@@ -61,15 +61,13 @@ export function getBoundNewMethod(
     evaluator: TypeEvaluator,
     errorNode: ExpressionNode,
     type: ClassType,
-    skipObjectBase = true
+    additionalFlags = MemberAccessFlags.SkipObjectBaseClass
 ) {
-    let flags =
+    const flags =
         MemberAccessFlags.SkipClassMembers |
         MemberAccessFlags.SkipAttributeAccessOverride |
-        MemberAccessFlags.TreatConstructorAsClassMethod;
-    if (skipObjectBase) {
-        flags |= MemberAccessFlags.SkipObjectBaseClass;
-    }
+        MemberAccessFlags.TreatConstructorAsClassMethod |
+        additionalFlags;
 
     return evaluator.getTypeOfBoundMember(errorNode, type, '__new__', { method: 'get' }, /* diag */ undefined, flags);
 }
@@ -79,12 +77,10 @@ export function getBoundInitMethod(
     evaluator: TypeEvaluator,
     errorNode: ExpressionNode,
     type: ClassType,
-    skipObjectBase = true
+    additionalFlags = MemberAccessFlags.SkipObjectBaseClass
 ) {
-    let flags = MemberAccessFlags.SkipInstanceMembers | MemberAccessFlags.SkipAttributeAccessOverride;
-    if (skipObjectBase) {
-        flags |= MemberAccessFlags.SkipObjectBaseClass;
-    }
+    const flags =
+        MemberAccessFlags.SkipInstanceMembers | MemberAccessFlags.SkipAttributeAccessOverride | additionalFlags;
 
     return evaluator.getTypeOfBoundMember(errorNode, type, '__init__', { method: 'get' }, /* diag */ undefined, flags);
 }
@@ -131,6 +127,12 @@ export function validateConstructorArguments(
         // overrides the normal `type.__call__` logic and don't perform the usual
         // __new__ and __init__ validation.
         if (metaclassResult.argumentErrors || !evaluator.assignType(convertToInstance(type), metaclassReturnType)) {
+            return metaclassResult;
+        }
+
+        // Handle the special case of an enum class, where the __new__ and __init__
+        // methods are replaced at runtime by the metaclass.
+        if (ClassType.isEnumClass(type)) {
             return metaclassResult;
         }
     }
@@ -293,7 +295,10 @@ function validateNewAndInitMethods(
         // but didn't supply solved type arguments, we'll ignore its specialized return
         // type and rely on the __init__ method to supply the type arguments instead.
         let initMethodBindToType = newMethodReturnType;
-        if (isPartlyUnknown(initMethodBindToType)) {
+        if (
+            initMethodBindToType.typeArguments &&
+            initMethodBindToType.typeArguments.some((typeArg) => isUnknown(typeArg))
+        ) {
             initMethodBindToType = ClassType.cloneAsInstance(type);
         }
 
@@ -623,11 +628,9 @@ function validateFallbackConstructorCall(
     // It's OK if the argument list consists only of `*args` and `**kwargs`.
     if (argList.length > 0 && argList.some((arg) => arg.argumentCategory === ArgumentCategory.Simple)) {
         if (!type.includeSubclasses) {
-            const fileInfo = getFileInfo(errorNode);
             evaluator.addDiagnostic(
-                fileInfo.diagnosticRuleSet.reportGeneralTypeIssues,
-                DiagnosticRule.reportGeneralTypeIssues,
-                Localizer.Diagnostic.constructorNoArgs().format({ type: type.aliasName || type.details.name }),
+                DiagnosticRule.reportCallIssue,
+                LocMessage.constructorNoArgs().format({ type: type.aliasName || type.details.name }),
                 errorNode
             );
             reportedErrors = true;
@@ -735,7 +738,7 @@ function applyExpectedTypeForConstructor(
     // If this isn't a generic type or it's a type that has already been
     // explicitly specialized, the expected type isn't applicable.
     if (type.details.typeParameters.length === 0 || type.typeArguments) {
-        return ClassType.cloneAsInstance(type);
+        return applySolvedTypeVars(ClassType.cloneAsInstance(type), typeVarContext, { applyInScopePlaceholders: true });
     }
 
     if (inferenceContext) {
@@ -783,6 +786,7 @@ function applyExpectedTypeForTupleConstructor(type: ClassType, inferenceContext:
 export function createFunctionFromConstructor(
     evaluator: TypeEvaluator,
     classType: ClassType,
+    selfType: ClassType | TypeVarType | undefined = undefined,
     recursionCount = 0
 ): FunctionType | OverloadedFunctionType | undefined {
     // Use the __init__ method if available. It's usually more detailed.
@@ -802,21 +806,21 @@ export function createFunctionFromConstructor(
             let constructorFunction = evaluator.bindFunctionToClassOrObject(
                 objectType,
                 initSubtype,
-                /* memberClass */ undefined,
+                initInfo && isInstantiableClass(initInfo.classType) ? initInfo.classType : undefined,
                 /* treatConstructorAsClassMember */ undefined,
-                /* selfType */ undefined,
+                selfType,
                 /* diag */ undefined,
                 recursionCount
             ) as FunctionType | undefined;
 
             if (constructorFunction) {
                 constructorFunction = FunctionType.clone(constructorFunction);
-                constructorFunction.details.declaredReturnType = objectType;
+                constructorFunction.details.declaredReturnType = selfType ?? objectType;
                 constructorFunction.details.name = '';
                 constructorFunction.details.fullName = '';
 
                 if (constructorFunction.specializedTypes) {
-                    constructorFunction.specializedTypes.returnType = objectType;
+                    constructorFunction.specializedTypes.returnType = selfType ?? objectType;
                 }
 
                 if (!constructorFunction.details.docString && classType.details.docString) {
@@ -832,7 +836,9 @@ export function createFunctionFromConstructor(
 
         if (isFunction(initType)) {
             return convertInitToConstructor(initType);
-        } else if (isOverloadedFunction(initType)) {
+        }
+
+        if (isOverloadedFunction(initType)) {
             const initOverloads: FunctionType[] = [];
             initType.overloads.forEach((overload) => {
                 const converted = convertInitToConstructor(overload);
@@ -843,7 +849,9 @@ export function createFunctionFromConstructor(
 
             if (initOverloads.length === 0) {
                 return undefined;
-            } else if (initOverloads.length === 1) {
+            }
+
+            if (initOverloads.length === 1) {
                 return initOverloads[0];
             }
 
@@ -867,9 +875,9 @@ export function createFunctionFromConstructor(
             let constructorFunction = evaluator.bindFunctionToClassOrObject(
                 classType,
                 newSubtype,
-                /* memberClass */ undefined,
+                newInfo && isInstantiableClass(newInfo.classType) ? newInfo.classType : undefined,
                 /* treatConstructorAsClassMember */ true,
-                /* selfType */ undefined,
+                selfType,
                 /* diag */ undefined,
                 recursionCount
             ) as FunctionType | undefined;
@@ -893,7 +901,9 @@ export function createFunctionFromConstructor(
 
         if (isFunction(newType)) {
             return convertNewToConstructor(newType);
-        } else if (isOverloadedFunction(newType)) {
+        }
+
+        if (isOverloadedFunction(newType)) {
             const newOverloads: FunctionType[] = [];
             newType.overloads.forEach((overload) => {
                 const converted = convertNewToConstructor(overload);
@@ -904,7 +914,9 @@ export function createFunctionFromConstructor(
 
             if (newOverloads.length === 0) {
                 return undefined;
-            } else if (newOverloads.length === 1) {
+            }
+
+            if (newOverloads.length === 1) {
                 return newOverloads[0];
             }
 
@@ -912,10 +924,15 @@ export function createFunctionFromConstructor(
         }
     }
 
-    // Return a generic constructor.
+    // Return a fallback constructor based on the object.__new__ method.
     const constructorFunction = FunctionType.createSynthesizedInstance('__new__', FunctionTypeFlags.None);
     constructorFunction.details.declaredReturnType = ClassType.cloneAsInstance(classType);
-    FunctionType.addDefaultParameters(constructorFunction);
+
+    // If this is type[T] or a protocol, we don't know what parameters are accepted
+    // by the constructor, so add the default parameters.
+    if (classType.includeSubclasses || ClassType.isProtocolClass(classType)) {
+        FunctionType.addDefaultParameters(constructorFunction);
+    }
 
     if (!constructorFunction.details.docString && classType.details.docString) {
         constructorFunction.details.docString = classType.details.docString;

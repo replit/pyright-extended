@@ -32,11 +32,11 @@ import {
 } from '../parser/parseNodes';
 import { ParseResults } from '../parser/parser';
 import { appendArray, getOrAdd, removeArrayElements } from './collectionUtils';
-import { isString } from './core';
 import * as debug from './debug';
 import { FileEditAction } from './editAction';
 import { convertOffsetToPosition, convertTextRangeToRange } from './positionUtils';
 import { doesRangeContain, doRangesIntersect, extendRange, Range, TextRange } from './textRange';
+import { Uri } from './uri/uri';
 
 export class TextEditTracker {
     private readonly _nodesRemoved: Map<ParseNode, ParseResults> = new Map<ParseNode, ParseResults>();
@@ -49,11 +49,11 @@ export class TextEditTracker {
     }
 
     addEdits(...edits: FileEditAction[]) {
-        edits.forEach((e) => this.addEdit(e.filePath, e.range, e.replacementText));
+        edits.forEach((e) => this.addEdit(e.fileUri, e.range, e.replacementText));
     }
 
-    addEdit(filePath: string, range: Range, replacementText: string) {
-        const edits = getOrAdd(this._results, filePath, () => []);
+    addEdit(fileUri: Uri, range: Range, replacementText: string) {
+        const edits = getOrAdd(this._results, fileUri.key, () => []);
 
         // If there is any overlapping edit, see whether we can merge edits.
         // We can merge edits, if one of them is 'deletion' or 2 edits has the same
@@ -70,11 +70,11 @@ export class TextEditTracker {
             );
         }
 
-        edits.push({ filePath, range, replacementText });
+        edits.push({ fileUri: fileUri, range, replacementText });
     }
 
     addEditWithTextRange(parseResults: ParseResults, range: TextRange, replacementText: string) {
-        const filePath = getFileInfo(parseResults.parseTree).filePath;
+        const filePath = getFileInfo(parseResults.parseTree).fileUri;
 
         const existing = parseResults.text.substr(range.start, range.length);
         if (existing === replacementText) {
@@ -93,8 +93,9 @@ export class TextEditTracker {
                 ? (importToDelete.parent as ImportNode).list
                 : (importToDelete.parent as ImportFromNode).imports;
 
-        const filePath = getFileInfo(parseResults.parseTree).filePath;
+        const filePath = getFileInfo(parseResults.parseTree).fileUri;
         const ranges = getTextRangeForImportNameDeletion(
+            parseResults,
             imports,
             imports.findIndex((v) => v === importToDelete)
         );
@@ -182,7 +183,7 @@ export class TextEditTracker {
         importGroup: ImportGroup,
         importNameInfo?: ImportNameInfo[]
     ) {
-        const filePath = getFileInfo(parseResults.parseTree).filePath;
+        const fileUri = getFileInfo(parseResults.parseTree).fileUri;
 
         this.addEdits(
             ...getTextEditsForAutoImportInsertion(
@@ -192,7 +193,7 @@ export class TextEditTracker {
                 importGroup,
                 parseResults,
                 convertOffsetToPosition(parseResults.parseTree.length, parseResults.tokenizerOutput.lines)
-            ).map((e) => ({ filePath, range: e.range, replacementText: e.replacementText }))
+            ).map((e) => ({ fileUri, range: e.range, replacementText: e.replacementText }))
         );
     }
 
@@ -219,7 +220,7 @@ export class TextEditTracker {
             return false;
         }
 
-        const filePath = getFileInfo(parseResults.parseTree).filePath;
+        const fileUri = getFileInfo(parseResults.parseTree).fileUri;
 
         const edits = getTextEditsForAutoImportSymbolAddition(importNameInfo, imported, parseResults);
         if (imported.node !== updateOptions.currentFromImport) {
@@ -227,7 +228,7 @@ export class TextEditTracker {
             // node we are working on.
             // ex) from xxx import yyy <= we are working on here.
             //     from xxx import zzz <= but we found this.
-            this.addEdits(...edits.map((e) => ({ filePath, range: e.range, replacementText: e.replacementText })));
+            this.addEdits(...edits.map((e) => ({ fileUri, range: e.range, replacementText: e.replacementText })));
             return true;
         }
 
@@ -246,9 +247,9 @@ export class TextEditTracker {
             return false;
         }
 
-        const deletions = this._getDeletionsForSpan(filePath, edits[0].range);
+        const deletions = this._getDeletionsForSpan(fileUri, edits[0].range);
         if (deletions.length === 0) {
-            this.addEdit(filePath, edits[0].range, edits[0].replacementText);
+            this.addEdit(fileUri, edits[0].range, edits[0].replacementText);
             return true;
         }
 
@@ -264,13 +265,13 @@ export class TextEditTracker {
             return false;
         }
 
-        this._removeEdits(filePath, deletions);
+        this._removeEdits(fileUri, deletions);
         if (importName.alias) {
             this._nodesRemoved.delete(importName.alias);
         }
 
         this.addEdit(
-            filePath,
+            fileUri,
             convertTextRangeToRange(importName.name, parseResults.tokenizerOutput.lines),
             newLastModuleName
         );
@@ -278,17 +279,17 @@ export class TextEditTracker {
         return true;
     }
 
-    private _getDeletionsForSpan(filePathOrEdit: string | FileEditAction[], range: Range) {
-        const edits = this._getOverlappingForSpan(filePathOrEdit, range);
+    private _getDeletionsForSpan(fileUriOrEdit: Uri | FileEditAction[], range: Range) {
+        const edits = this._getOverlappingForSpan(fileUriOrEdit, range);
         return edits.filter((e) => e.replacementText === '');
     }
 
-    private _removeEdits(filePathOrEdit: string | FileEditAction[], edits: FileEditAction[]) {
-        if (isString(filePathOrEdit)) {
-            filePathOrEdit = this._results.get(filePathOrEdit) ?? [];
+    private _removeEdits(fileUriOrEdit: Uri | FileEditAction[], edits: FileEditAction[]) {
+        if (Uri.isUri(fileUriOrEdit)) {
+            fileUriOrEdit = this._results.get(fileUriOrEdit.key) ?? [];
         }
 
-        removeArrayElements(filePathOrEdit, (f) => edits.some((e) => FileEditAction.areEqual(f, e)));
+        removeArrayElements(fileUriOrEdit, (f) => edits.some((e) => FileEditAction.areEqual(f, e)));
     }
 
     private _getEditsToMerge(edits: FileEditAction[], range: Range, replacementText: string) {
@@ -318,12 +319,12 @@ export class TextEditTracker {
         );
     }
 
-    private _getOverlappingForSpan(filePathOrEdit: string | FileEditAction[], range: Range) {
-        if (isString(filePathOrEdit)) {
-            filePathOrEdit = this._results.get(filePathOrEdit) ?? [];
+    private _getOverlappingForSpan(fileUriOrEdit: Uri | FileEditAction[], range: Range) {
+        if (Uri.isUri(fileUriOrEdit)) {
+            fileUriOrEdit = this._results.get(fileUriOrEdit.key) ?? [];
         }
 
-        return filePathOrEdit.filter((e) => doRangesIntersect(e.range, range));
+        return fileUriOrEdit.filter((e) => doRangesIntersect(e.range, range));
     }
 
     private _processNodeRemoved(token: CancellationToken) {
@@ -342,7 +343,7 @@ export class TextEditTracker {
                 this._pendingNodeToRemove.pop();
 
                 const info = getFileInfo(peekNodeToRemove.parseResults.parseTree);
-                this.addEdit(info.filePath, convertTextRangeToRange(peekNodeToRemove.node, info.lines), '');
+                this.addEdit(info.fileUri, convertTextRangeToRange(peekNodeToRemove.node, info.lines), '');
             }
         }
     }
@@ -369,11 +370,7 @@ export class TextEditTracker {
         );
 
         if (nameNodes.length === nodesRemoved.length) {
-            this.addEdit(
-                info.filePath,
-                ParseTreeUtils.getFullStatementRange(importNode, nodeToRemove.parseResults),
-                ''
-            );
+            this.addEdit(info.fileUri, ParseTreeUtils.getFullStatementRange(importNode, nodeToRemove.parseResults), '');
 
             // Remove nodes that are handled from queue.
             this._removeNodesHandled(nodesRemoved);
@@ -395,8 +392,8 @@ export class TextEditTracker {
             return false;
         }
 
-        const editSpans = getTextRangeForImportNameDeletion(nameNodes, ...indices);
-        editSpans.forEach((e) => this.addEdit(info.filePath, convertTextRangeToRange(e, info.lines), ''));
+        const editSpans = getTextRangeForImportNameDeletion(nodeToRemove.parseResults, nameNodes, ...indices);
+        editSpans.forEach((e) => this.addEdit(info.fileUri, convertTextRangeToRange(e, info.lines), ''));
 
         this._removeNodesHandled(nodesRemoved);
         return true;

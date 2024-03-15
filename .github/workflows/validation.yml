@@ -1,7 +1,7 @@
 name: 'Validation'
 
 env:
-  NODE_VERSION: '16' # Shipped with VS Code.
+  NODE_VERSION: '18' # Shipped with VS Code.
   PYTHON_VERSION: 3.11
 
 on:
@@ -26,6 +26,7 @@ jobs:
 
       - name: Get npm cache directory
         id: npm-cache
+        shell: bash
         run: |
           echo "dir=$(npm config get cache)" >> $GITHUB_OUTPUT
       - uses: actions/cache@v3
@@ -52,6 +53,7 @@ jobs:
 
       - name: Get npm cache directory
         id: npm-cache
+        shell: bash
         run: |
           echo "dir=$(npm config get cache)" >> $GITHUB_OUTPUT
       - uses: actions/cache@v3
@@ -96,6 +98,7 @@ jobs:
       - name: Get npm cache directory
         if: runner.os != 'Windows'
         id: npm-cache
+        shell: bash
         run: |
           echo "dir=$(npm config get cache)" >> $GITHUB_OUTPUT
       - uses: actions/cache@v3
@@ -168,6 +171,7 @@ jobs:
 
       - name: Get npm cache directory
         id: npm-cache
+        shell: bash
         run: |
           echo "dir=$(npm config get cache)" >> $GITHUB_OUTPUT
       - uses: actions/cache@v3

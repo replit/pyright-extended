@@ -13,9 +13,8 @@
 import { appendArray } from '../common/collectionUtils';
 import { DiagnosticAddendum } from '../common/diagnostic';
 import { DiagnosticRule } from '../common/diagnosticRules';
-import { Localizer } from '../localization/localize';
+import { LocMessage } from '../localization/localize';
 import { ArgumentCategory, ExpressionNode, ParameterCategory } from '../parser/parseNodes';
-import { getFileInfo } from './analyzerNodeInfo';
 import { createFunctionFromConstructor } from './constructors';
 import { getParameterListDetails, ParameterSource } from './parameterUtils';
 import { Symbol, SymbolFlags } from './symbol';
@@ -95,13 +94,15 @@ function applyPartialTransform(
 
     const origFunctionTypeResult = evaluator.getTypeOfArgument(argList[0]);
     let origFunctionType = origFunctionTypeResult.type;
+    const origFunctionTypeConcrete = evaluator.makeTopLevelTypeVarsConcrete(origFunctionType);
 
-    if (isTypeVar(origFunctionType)) {
-        origFunctionType = evaluator.makeTopLevelTypeVarsConcrete(origFunctionType);
-    }
+    if (isInstantiableClass(origFunctionTypeConcrete)) {
+        const constructor = createFunctionFromConstructor(
+            evaluator,
+            origFunctionTypeConcrete,
+            isTypeVar(origFunctionType) ? convertToInstance(origFunctionType) : undefined
+        );
 
-    if (isInstantiableClass(origFunctionType)) {
-        const constructor = createFunctionFromConstructor(evaluator, origFunctionType);
         if (constructor) {
             origFunctionType = constructor;
         }
@@ -169,9 +170,8 @@ function applyPartialTransform(
         if (applicableOverloads.length === 0) {
             if (sawArgErrors) {
                 evaluator.addDiagnostic(
-                    getFileInfo(errorNode).diagnosticRuleSet.reportGeneralTypeIssues,
-                    DiagnosticRule.reportGeneralTypeIssues,
-                    Localizer.Diagnostic.noOverload().format({
+                    DiagnosticRule.reportCallIssue,
+                    LocMessage.noOverload().format({
                         name: origFunctionType.overloads[0].details.name,
                     }),
                     errorNode
@@ -257,9 +257,8 @@ function applyPartialTransformToFunction(
                     if (!evaluator.assignType(paramType, argTypeResult.type, diag, typeVarContext)) {
                         if (errorNode) {
                             evaluator.addDiagnostic(
-                                getFileInfo(errorNode).diagnosticRuleSet.reportGeneralTypeIssues,
-                                DiagnosticRule.reportGeneralTypeIssues,
-                                Localizer.Diagnostic.argAssignmentParamFunction().format({
+                                DiagnosticRule.reportArgumentType,
+                                LocMessage.argAssignmentParamFunction().format({
                                     argType: evaluator.printType(argTypeResult.type),
                                     paramType: evaluator.printType(paramType),
                                     functionName: origFunctionType.details.name,
@@ -276,11 +275,10 @@ function applyPartialTransformToFunction(
                     if (!reportedPositionalError) {
                         if (errorNode) {
                             evaluator.addDiagnostic(
-                                getFileInfo(errorNode).diagnosticRuleSet.reportGeneralTypeIssues,
-                                DiagnosticRule.reportGeneralTypeIssues,
+                                DiagnosticRule.reportCallIssue,
                                 paramListDetails.positionParamCount === 1
-                                    ? Localizer.Diagnostic.argPositionalExpectedOne()
-                                    : Localizer.Diagnostic.argPositionalExpectedCount().format({
+                                    ? LocMessage.argPositionalExpectedOne()
+                                    : LocMessage.argPositionalExpectedCount().format({
                                           expected: paramListDetails.positionParamCount,
                                       }),
                                 arg.valueExpression ?? errorNode
@@ -305,9 +303,8 @@ function applyPartialTransformToFunction(
                 if (!evaluator.assignType(paramType, argTypeResult.type, diag, typeVarContext)) {
                     if (errorNode) {
                         evaluator.addDiagnostic(
-                            getFileInfo(errorNode).diagnosticRuleSet.reportGeneralTypeIssues,
-                            DiagnosticRule.reportGeneralTypeIssues,
-                            Localizer.Diagnostic.argAssignmentParamFunction().format({
+                            DiagnosticRule.reportArgumentType,
+                            LocMessage.argAssignmentParamFunction().format({
                                 argType: evaluator.printType(argTypeResult.type),
                                 paramType: evaluator.printType(paramType),
                                 functionName: origFunctionType.details.name,
@@ -334,9 +331,8 @@ function applyPartialTransformToFunction(
                 if (paramListDetails.kwargsIndex === undefined) {
                     if (errorNode) {
                         evaluator.addDiagnostic(
-                            getFileInfo(errorNode).diagnosticRuleSet.reportGeneralTypeIssues,
-                            DiagnosticRule.reportGeneralTypeIssues,
-                            Localizer.Diagnostic.paramNameMissing().format({ name: arg.name.value }),
+                            DiagnosticRule.reportCallIssue,
+                            LocMessage.paramNameMissing().format({ name: arg.name.value }),
                             arg.name
                         );
                     }
@@ -357,9 +353,8 @@ function applyPartialTransformToFunction(
                     if (!evaluator.assignType(paramType, argTypeResult.type, diag, typeVarContext)) {
                         if (errorNode) {
                             evaluator.addDiagnostic(
-                                getFileInfo(errorNode).diagnosticRuleSet.reportGeneralTypeIssues,
-                                DiagnosticRule.reportGeneralTypeIssues,
-                                Localizer.Diagnostic.argAssignmentParamFunction().format({
+                                DiagnosticRule.reportArgumentType,
+                                LocMessage.argAssignmentParamFunction().format({
                                     argType: evaluator.printType(argTypeResult.type),
                                     paramType: evaluator.printType(paramType),
                                     functionName: origFunctionType.details.name,
@@ -379,9 +374,8 @@ function applyPartialTransformToFunction(
                 if (paramMap.has(paramName)) {
                     if (errorNode) {
                         evaluator.addDiagnostic(
-                            getFileInfo(errorNode).diagnosticRuleSet.reportGeneralTypeIssues,
-                            DiagnosticRule.reportGeneralTypeIssues,
-                            Localizer.Diagnostic.paramAlreadyAssigned().format({ name: arg.name.value }),
+                            DiagnosticRule.reportCallIssue,
+                            LocMessage.paramAlreadyAssigned().format({ name: arg.name.value }),
                             arg.name
                         );
                     }
@@ -399,9 +393,8 @@ function applyPartialTransformToFunction(
                     if (!evaluator.assignType(paramType, argTypeResult.type, diag, typeVarContext)) {
                         if (errorNode) {
                             evaluator.addDiagnostic(
-                                getFileInfo(errorNode).diagnosticRuleSet.reportGeneralTypeIssues,
-                                DiagnosticRule.reportGeneralTypeIssues,
-                                Localizer.Diagnostic.argAssignmentParamFunction().format({
+                                DiagnosticRule.reportArgumentType,
+                                LocMessage.argAssignmentParamFunction().format({
                                     argType: evaluator.printType(argTypeResult.type),
                                     paramType: evaluator.printType(paramType),
                                     functionName: origFunctionType.details.name,

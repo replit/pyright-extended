@@ -11,19 +11,22 @@ import { IPythonMode, SourceFile, SourceFileEditMode } from '../analyzer/sourceF
 import { SupportPartialStubs } from '../pyrightFileSystem';
 import { ConsoleInterface } from './console';
 import {
-    StatusMutationListener,
+    DebugInfoInspector,
     ServiceProvider as ReadOnlyServiceProvider,
+    StatusMutationListener,
     SymbolDefinitionProvider,
     SymbolUsageProviderFactory,
 } from './extensibility';
 import { FileSystem, TempFile } from './fileSystem';
 import { LogTracker } from './logTracker';
 import { GroupServiceKey, ServiceKey, ServiceProvider } from './serviceProvider';
+import { Uri } from './uri/uri';
 
 declare module './serviceProvider' {
     interface ServiceProvider {
         fs(): FileSystem;
         console(): ConsoleInterface;
+        tmp(): TempFile | undefined;
         sourceFileFactory(): ISourceFileFactory;
         partialStubs(): SupportPartialStubs;
     }
@@ -39,6 +42,7 @@ export namespace ServiceKeys {
     export const stateMutationListeners = new GroupServiceKey<StatusMutationListener>();
     export const tempFile = new ServiceKey<TempFile>();
     export const cacheManager = new ServiceKey<CacheManager>();
+    export const debugInfoInspector = new ServiceKey<DebugInfoInspector>();
 }
 
 export function createServiceProvider(...services: any): ServiceProvider {
@@ -77,6 +81,9 @@ ServiceProvider.prototype.console = function () {
 ServiceProvider.prototype.partialStubs = function () {
     return this.get(ServiceKeys.partialStubs);
 };
+ServiceProvider.prototype.tmp = function () {
+    return this.tryGet(ServiceKeys.tempFile);
+};
 ServiceProvider.prototype.sourceFileFactory = function () {
     const result = this.tryGet(ServiceKeys.sourceFileFactory);
     return result || DefaultSourceFileFactory;
@@ -85,26 +92,24 @@ ServiceProvider.prototype.sourceFileFactory = function () {
 const DefaultSourceFileFactory: ISourceFileFactory = {
     createSourceFile(
         serviceProvider: ReadOnlyServiceProvider,
-        filePath: string,
+        fileUri: Uri,
         moduleName: string,
         isThirdPartyImport: boolean,
         isThirdPartyPyTypedPresent: boolean,
         editMode: SourceFileEditMode,
         console?: ConsoleInterface,
         logTracker?: LogTracker,
-        realFilePath?: string,
         ipythonMode?: IPythonMode
     ) {
         return new SourceFile(
             serviceProvider,
-            filePath,
+            fileUri,
             moduleName,
             isThirdPartyImport,
             isThirdPartyPyTypedPresent,
             editMode,
             console,
             logTracker,
-            realFilePath,
             ipythonMode
         );
     },

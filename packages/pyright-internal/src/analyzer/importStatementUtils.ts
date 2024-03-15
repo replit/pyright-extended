@@ -14,16 +14,11 @@ import { throwIfCancellationRequested } from '../common/cancellationUtils';
 import { addIfUnique, appendArray, createMapFromItems } from '../common/collectionUtils';
 import { TextEditAction } from '../common/editAction';
 import { ReadOnlyFileSystem } from '../common/fileSystem';
-import {
-    getDirectoryPath,
-    getFileName,
-    getRelativePathComponentsFromDirectory,
-    isFile,
-    stripFileExtension,
-} from '../common/pathUtils';
 import { convertOffsetToPosition, convertPositionToOffset } from '../common/positionUtils';
 import { compareStringsCaseSensitive } from '../common/stringUtils';
 import { Position, Range, TextRange } from '../common/textRange';
+import { Uri } from '../common/uri/uri';
+import { isFile } from '../common/uri/uriUtils';
 import {
     ImportAsNode,
     ImportFromAsNode,
@@ -35,16 +30,18 @@ import {
     ParseNodeType,
 } from '../parser/parseNodes';
 import { ParseResults } from '../parser/parser';
+import { TokenType } from '../parser/tokenizerTypes';
 import * as AnalyzerNodeInfo from './analyzerNodeInfo';
 import { ModuleNameAndType } from './importResolver';
 import { ImportResult, ImportType } from './importResult';
+import { findTokenAfter, getTokenAt } from './parseTreeUtils';
 import * as SymbolNameUtils from './symbolNameUtils';
 
 export interface ImportStatement {
     node: ImportNode | ImportFromNode;
     subnode?: ImportAsNode;
     importResult: ImportResult | undefined;
-    resolvedPath: string | undefined;
+    resolvedPath: Uri | undefined;
     moduleName: string;
     followsNonImportStatement: boolean;
 }
@@ -522,6 +519,8 @@ function _getInsertionEditForAutoImportInsertion(
             }
 
             if (importGroup === curImportGroup && curImport.moduleName > moduleName) {
+                insertBefore = true;
+                insertionImport = curImport;
                 break;
             }
 
@@ -623,10 +622,10 @@ function _getInsertionEditForAutoImportInsertion(
 function _processImportNode(node: ImportNode, localImports: ImportStatements, followsNonImportStatement: boolean) {
     node.list.forEach((importAsNode) => {
         const importResult = AnalyzerNodeInfo.getImportInfo(importAsNode.module);
-        let resolvedPath: string | undefined;
+        let resolvedPath: Uri | undefined;
 
         if (importResult && importResult.isImportFound) {
-            resolvedPath = importResult.resolvedPaths[importResult.resolvedPaths.length - 1];
+            resolvedPath = importResult.resolvedUris[importResult.resolvedUris.length - 1];
         }
 
         const localImport: ImportStatement = {
@@ -645,8 +644,8 @@ function _processImportNode(node: ImportNode, localImports: ImportStatements, fo
             // Don't overwrite existing import or import from statements
             // because we always want to prefer 'import from' over 'import'
             // in the map.
-            if (!localImports.mapByFilePath.has(resolvedPath)) {
-                localImports.mapByFilePath.set(resolvedPath, localImport);
+            if (!localImports.mapByFilePath.has(resolvedPath.key)) {
+                localImports.mapByFilePath.set(resolvedPath.key, localImport);
             }
         }
     });
@@ -659,10 +658,10 @@ function _processImportFromNode(
     includeImplicitImports: boolean
 ) {
     const importResult = AnalyzerNodeInfo.getImportInfo(node.module);
-    let resolvedPath: string | undefined;
+    let resolvedPath: Uri | undefined;
 
     if (importResult && importResult.isImportFound) {
-        resolvedPath = importResult.resolvedPaths[importResult.resolvedPaths.length - 1];
+        resolvedPath = importResult.resolvedUris[importResult.resolvedUris.length - 1];
     }
 
     if (includeImplicitImports && importResult) {
@@ -671,7 +670,7 @@ function _processImportFromNode(
         for (const implicitImport of importResult.implicitImports.values()) {
             const importFromAs = node.imports.find((i) => i.name.value === implicitImport.name);
             if (importFromAs) {
-                localImports.implicitImports.set(implicitImport.path, importFromAs);
+                localImports.implicitImports.set(implicitImport.uri.key, importFromAs);
             }
         }
     }
@@ -688,7 +687,7 @@ function _processImportFromNode(
 
     // Add it to the map.
     if (resolvedPath) {
-        const prevEntry = localImports.mapByFilePath.get(resolvedPath);
+        const prevEntry = localImports.mapByFilePath.get(resolvedPath.key);
         // Overwrite existing import statements because we always want to prefer
         // 'import from' over 'import'. Also, overwrite existing 'import from' if
         // the module name is shorter.
@@ -697,7 +696,7 @@ function _processImportFromNode(
             prevEntry.node.nodeType === ParseNodeType.Import ||
             prevEntry.moduleName.length > localImport.moduleName.length
         ) {
-            localImports.mapByFilePath.set(resolvedPath, localImport);
+            localImports.mapByFilePath.set(resolvedPath.key, localImport);
         }
     }
 }
@@ -749,6 +748,7 @@ export function getImportGroupFromModuleNameAndType(moduleNameAndType: ModuleNam
 }
 
 export function getTextRangeForImportNameDeletion(
+    parseResults: ParseResults,
     nameNodes: ImportAsNode[] | ImportFromAsNode[],
     ...nameNodeIndexToDelete: number[]
 ): TextRange[] {
@@ -757,14 +757,15 @@ export function getTextRangeForImportNameDeletion(
         const startNode = nameNodes[pair.start];
         const endNode = nameNodes[pair.end];
 
-        if (pair.start === 0 && nameNodes.length === pair.end - pair.start + 1) {
+        if (pair.start === 0 && nameNodes.length === pair.end + 1) {
             // get span of whole statement. ex) "import [|A|]" or "import [|A, B|]"
             editSpans.push(TextRange.fromBounds(startNode.start, TextRange.getEnd(endNode)));
         } else if (pair.end === nameNodes.length - 1) {
             // get span of "import A[|, B|]" or "import A[|, B, C|]"
-            const start = TextRange.getEnd(nameNodes[pair.start - 1]);
-            const length = TextRange.getEnd(endNode) - start;
-            editSpans.push({ start, length });
+            const previousNode = nameNodes[pair.start - 1];
+            editSpans.push(
+                ...getEditsPreservingFirstCommentAfterCommaIfExist(parseResults, previousNode, startNode, endNode)
+            );
         } else {
             // get span of "import [|A, |]B" or "import [|A, B,|] C"
             const start = startNode.start;
@@ -773,6 +774,42 @@ export function getTextRangeForImportNameDeletion(
         }
     }
     return editSpans;
+}
+
+function getEditsPreservingFirstCommentAfterCommaIfExist(
+    parseResults: ParseResults,
+    previousNode: ParseNode,
+    startNode: ParseNode,
+    endNode: ParseNode
+): TextRange[] {
+    const offsetOfPreviousNodeEnd = TextRange.getEnd(previousNode);
+    const startingToken = getTokenAt(parseResults.tokenizerOutput.tokens, startNode.start);
+    if (!startingToken || !startingToken.comments || startingToken.comments.length === 0) {
+        const length = TextRange.getEnd(endNode) - offsetOfPreviousNodeEnd;
+        return [{ start: offsetOfPreviousNodeEnd, length }];
+    }
+
+    const commaToken = findTokenAfter(parseResults, TextRange.getEnd(previousNode), (t) => t.type === TokenType.Comma);
+    if (!commaToken) {
+        const length = TextRange.getEnd(endNode) - offsetOfPreviousNodeEnd;
+        return [{ start: offsetOfPreviousNodeEnd, length }];
+    }
+
+    // We have code something like
+    //  previousNode, #comment
+    //  startNode,
+    //  endNode
+    //
+    // Make sure we preserve #comment when deleting start/end nodes so we have
+    //  previousNode #comment
+    // as final result.
+    const lengthToComma = TextRange.getEnd(commaToken) - offsetOfPreviousNodeEnd;
+    const offsetToCommentEnd = TextRange.getEnd(startingToken.comments[startingToken.comments.length - 1]);
+    const length = TextRange.getEnd(endNode) - offsetToCommentEnd;
+    return [
+        { start: offsetOfPreviousNodeEnd, length: lengthToComma },
+        { start: offsetToCommentEnd, length },
+    ];
 }
 
 function getConsecutiveNumberPairs(indices: number[]) {
@@ -810,23 +847,23 @@ function getConsecutiveNumberPairs(indices: number[]) {
 
 export function getRelativeModuleName(
     fs: ReadOnlyFileSystem,
-    sourcePath: string,
-    targetPath: string,
+    sourcePath: Uri,
+    targetPath: Uri,
     ignoreFolderStructure = false,
     sourceIsFile?: boolean
 ) {
     let srcPath = sourcePath;
     sourceIsFile = sourceIsFile !== undefined ? sourceIsFile : isFile(fs, sourcePath);
     if (sourceIsFile) {
-        srcPath = getDirectoryPath(sourcePath);
+        srcPath = sourcePath.getDirectory();
     }
 
     let symbolName: string | undefined;
     let destPath = targetPath;
     if (sourceIsFile) {
-        destPath = getDirectoryPath(targetPath);
+        destPath = targetPath.getDirectory();
 
-        const fileName = stripFileExtension(getFileName(targetPath));
+        const fileName = targetPath.stripAllExtensions().fileName;
         if (fileName !== '__init__') {
             // ex) src: a.py, dest: b.py -> ".b" will be returned.
             symbolName = fileName;
@@ -835,18 +872,18 @@ export function getRelativeModuleName(
             //     like how it would return for sibling folder.
             //
             // if folder structure is not ignored, ".." will be returned
-            symbolName = getFileName(destPath);
-            destPath = getDirectoryPath(destPath);
+            symbolName = destPath.fileName;
+            destPath = destPath.getDirectory();
         }
     }
 
-    const relativePaths = getRelativePathComponentsFromDirectory(srcPath, destPath, (f) => fs.realCasePath(f));
+    const relativePaths = srcPath.getRelativePathComponents(destPath);
 
     // This assumes both file paths are under the same importing root.
     // So this doesn't handle paths pointing to 2 different import roots.
     // ex) user file A to library file B
     let currentPaths = '.';
-    for (let i = 1; i < relativePaths.length; i++) {
+    for (let i = 0; i < relativePaths.length; i++) {
         const relativePath = relativePaths[i];
         if (relativePath === '..') {
             currentPaths += '.';
@@ -867,25 +904,25 @@ export function getRelativeModuleName(
     return currentPaths;
 }
 
-export function getDirectoryLeadingDotsPointsTo(fromDirectory: string, leadingDots: number) {
+export function getDirectoryLeadingDotsPointsTo(fromDirectory: Uri, leadingDots: number) {
     let currentDirectory = fromDirectory;
     for (let i = 1; i < leadingDots; i++) {
-        if (currentDirectory === '') {
+        if (currentDirectory.isRoot()) {
             return undefined;
         }
 
-        currentDirectory = getDirectoryPath(currentDirectory);
+        currentDirectory = currentDirectory.getDirectory();
     }
 
     return currentDirectory;
 }
 
 export function getResolvedFilePath(importResult: ImportResult | undefined) {
-    if (!importResult || !importResult.isImportFound || importResult.resolvedPaths.length === 0) {
+    if (!importResult || !importResult.isImportFound || importResult.resolvedUris.length === 0) {
         return undefined;
     }
 
-    if (importResult.resolvedPaths.length === 1 && importResult.resolvedPaths[0] === '') {
+    if (importResult.resolvedUris.length === 1 && importResult.resolvedUris[0].equals(Uri.empty())) {
         // Import is resolved to namespace package folder.
         if (importResult.packageDirectory) {
             return importResult.packageDirectory;
@@ -900,7 +937,7 @@ export function getResolvedFilePath(importResult: ImportResult | undefined) {
     }
 
     // Regular case.
-    return importResult.resolvedPaths[importResult.resolvedPaths.length - 1];
+    return importResult.resolvedUris[importResult.resolvedUris.length - 1];
 }
 
 export function haveSameParentModule(module1: string[], module2: string[]) {

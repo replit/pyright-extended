@@ -7,6 +7,7 @@
 import assert from 'assert';
 import { CancellationToken } from 'vscode-jsonrpc';
 
+import { findNodeByOffset } from '../analyzer/parseTreeUtils';
 import { FileEditAction } from '../common/editAction';
 import { TextEditTracker } from '../common/textEditTracker';
 import { Range } from './harness/fourslash/fourSlashTypes';
@@ -95,6 +96,41 @@ test('dup with overlapped range', () => {
     verifyEdits(code, false);
 });
 
+test('handle comments', () => {
+    const code = `
+//// from os import (
+////      abort[|{|"e":""|},|] # comment[|{|"e":""|}
+////      [|{|"r":""|}access|]|]
+////      )
+    `;
+
+    verifyRemoveNodes(code);
+});
+
+function verifyRemoveNodes(code: string) {
+    const state = parseAndGetTestState(code).state;
+    const tracker = new TextEditTracker();
+
+    const ranges = state.getRanges();
+    const changeRanges = _getChangeRanges(ranges);
+    for (const range of changeRanges) {
+        const parseResults = state.program.getParseResults(range.fileUri)!;
+        const node = findNodeByOffset(parseResults.parseTree, range.pos)!;
+        tracker.removeNodes({ node, parseResults });
+    }
+
+    const edits = tracker.getEdits(CancellationToken.None);
+
+    const editRanges = _getEditRanges(ranges);
+    assert.strictEqual(edits.length, editRanges.length);
+    assert(
+        _areEqual(
+            edits,
+            editRanges.map((r) => _createFileActionEdit(state, r))
+        )
+    );
+}
+
 function verifyEdits(code: string, mergeOnlyDuplications = true) {
     const state = parseAndGetTestState(code).state;
     const tracker = new TextEditTracker(mergeOnlyDuplications);
@@ -103,7 +139,7 @@ function verifyEdits(code: string, mergeOnlyDuplications = true) {
     const changeRanges = _getChangeRanges(ranges);
     for (const range of changeRanges) {
         const edit = convertRangeToFileEditAction(state, range);
-        tracker.addEdit(edit.filePath, edit.range, edit.replacementText);
+        tracker.addEdit(edit.fileUri, edit.range, edit.replacementText);
     }
 
     const edits = tracker.getEdits(CancellationToken.None);

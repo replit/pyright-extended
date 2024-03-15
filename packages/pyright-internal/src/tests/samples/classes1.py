@@ -2,6 +2,12 @@
 # handle various class definition cases.
 
 
+from typing import Any, TypeVar
+
+
+T = TypeVar("T")
+
+
 class A:
     ...
 
@@ -17,7 +23,12 @@ class D(app.C):
     ...
 
 
-class E:
+class EMeta(type):
+    def __new__(mcls, *args: Any, **kwargs: Any):
+        ...
+
+
+class E(metaclass=EMeta):
     pass
 
 
@@ -52,3 +63,17 @@ def func1(x: type) -> object:
         pass
 
     return Y()
+
+
+# This should generate an error because a TypeVar can't be used as a base class.
+class K(T):
+    pass
+
+
+class L(type[T]):
+    pass
+
+
+def func2(cls: type[T]):
+    class M(cls):
+        pass

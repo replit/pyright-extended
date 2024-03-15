@@ -13,7 +13,7 @@ import { appendArray } from '../common/collectionUtils';
 import { assert } from '../common/debug';
 import { DiagnosticAddendum } from '../common/diagnostic';
 import { DiagnosticRule } from '../common/diagnosticRules';
-import { Localizer } from '../localization/localize';
+import { LocAddendum, LocMessage } from '../localization/localize';
 import {
     ArgumentCategory,
     ExpressionNode,
@@ -28,7 +28,6 @@ import {
     PatternSequenceNode,
     PatternValueNode,
 } from '../parser/parseNodes';
-import { getFileInfo } from './analyzerNodeInfo';
 import { CodeFlowReferenceExpressionNode } from './codeFlowTypes';
 import { populateTypeVarContextBasedOnExpectedType } from './constraintSolver';
 import { getTypeVarScopesForNode, isMatchingExpression } from './parseTreeUtils';
@@ -37,6 +36,7 @@ import { EvaluatorFlags, TypeEvaluator, TypeResult } from './typeEvaluatorTypes'
 import {
     enumerateLiteralsForType,
     narrowTypeForDiscriminatedDictEntryComparison,
+    narrowTypeForDiscriminatedLiteralFieldComparison,
     narrowTypeForDiscriminatedTupleComparison,
 } from './typeGuards';
 import {
@@ -51,6 +51,7 @@ import {
     isSameWithoutLiteralValue,
     isTypeSame,
     isUnknown,
+    isUnpackedVariadicTypeVar,
     NeverType,
     Type,
     TypeBase,
@@ -65,7 +66,9 @@ import {
     doForEachSubtype,
     getTypeCondition,
     getTypeVarScopeId,
+    getUnknownTypeForCallable,
     isLiteralType,
+    isLiteralTypeOrUnion,
     isMetaclassInstance,
     isNoneInstance,
     isPartlyUnknown,
@@ -337,7 +340,7 @@ function narrowTypeBasedOnSequencePattern(
             }
 
             // If this is a supertype of Sequence, we can narrow it to a Sequence type.
-            if (entry.isPotentialNoMatch) {
+            if (entry.isPotentialNoMatch && !entry.isTuple) {
                 const sequenceType = evaluator.getTypingType(pattern, 'Sequence');
                 if (sequenceType && isInstantiableClass(sequenceType)) {
                     let typeArgType = evaluator.stripLiteralValue(combineTypes(narrowedEntryTypes));
@@ -428,7 +431,7 @@ function narrowTypeBasedOnMappingPattern(
         return mapSubtypes(type, (subtype) => {
             if (isClassInstance(subtype) && ClassType.isTypedDictClass(subtype)) {
                 const typedDictMembers = getTypedDictMembersForClass(evaluator, subtype, /* allowNarrowed */ true);
-                const member = typedDictMembers.get(keyValue);
+                const member = typedDictMembers.knownItems.get(keyValue);
 
                 if (member && (member.isRequired || member.isProvided) && isClassInstance(member.valueType)) {
                     const memberValueType = member.valueType;
@@ -482,7 +485,7 @@ function narrowTypeBasedOnMappingPattern(
                             }
 
                             const tdEntries = getTypedDictMembersForClass(evaluator, mappingSubtypeInfo.typedDict!);
-                            const valueEntry = tdEntries.get(keySubtype.literalValue as string);
+                            const valueEntry = tdEntries.knownItems.get(keySubtype.literalValue as string);
                             if (valueEntry) {
                                 const narrowedValueType = narrowTypeBasedOnPattern(
                                     evaluator,
@@ -595,56 +598,69 @@ function narrowTypeBasedOnLiteralPattern(
     const literalType = evaluator.getTypeOfExpression(pattern.expression).type;
 
     if (!isPositiveTest) {
-        return mapSubtypes(type, (subtype) => {
+        return evaluator.mapSubtypesExpandTypeVars(
+            type,
+            /* conditionFilter */ undefined,
+            (expandedSubtype, unexpandedSubtype) => {
+                if (
+                    isClassInstance(literalType) &&
+                    isLiteralType(literalType) &&
+                    isClassInstance(expandedSubtype) &&
+                    isLiteralType(expandedSubtype) &&
+                    evaluator.assignType(literalType, expandedSubtype)
+                ) {
+                    return undefined;
+                }
+
+                if (isNoneInstance(expandedSubtype) && isNoneInstance(literalType)) {
+                    return undefined;
+                }
+
+                // Narrow a non-literal bool based on a literal bool pattern.
+                if (
+                    isClassInstance(expandedSubtype) &&
+                    ClassType.isBuiltIn(expandedSubtype, 'bool') &&
+                    expandedSubtype.literalValue === undefined &&
+                    isClassInstance(literalType) &&
+                    ClassType.isBuiltIn(literalType, 'bool') &&
+                    literalType.literalValue !== undefined
+                ) {
+                    return ClassType.cloneWithLiteral(literalType, !(literalType.literalValue as boolean));
+                }
+
+                return expandedSubtype;
+            }
+        );
+    }
+
+    return evaluator.mapSubtypesExpandTypeVars(
+        type,
+        /* conditionFilter */ undefined,
+        (expandedSubtype, unexpandedSubtype) => {
+            if (evaluator.assignType(expandedSubtype, literalType)) {
+                return literalType;
+            }
+
+            // See if the subtype is a subclass of the literal's class. For example,
+            // if it's a literal str, see if the subtype is subclass of str.
             if (
                 isClassInstance(literalType) &&
                 isLiteralType(literalType) &&
-                isClassInstance(subtype) &&
-                isLiteralType(subtype) &&
-                evaluator.assignType(literalType, subtype)
+                isClassInstance(expandedSubtype) &&
+                !isLiteralType(expandedSubtype)
             ) {
-                return undefined;
+                if (
+                    evaluator.assignType(
+                        ClassType.cloneWithLiteral(literalType, /* value */ undefined),
+                        expandedSubtype
+                    )
+                ) {
+                    return expandedSubtype;
+                }
             }
-
-            if (isNoneInstance(subtype) && isNoneInstance(literalType)) {
-                return undefined;
-            }
-
-            // Narrow a non-literal bool based on a literal bool pattern.
-            if (
-                isClassInstance(subtype) &&
-                ClassType.isBuiltIn(subtype, 'bool') &&
-                subtype.literalValue === undefined &&
-                isClassInstance(literalType) &&
-                ClassType.isBuiltIn(literalType, 'bool') &&
-                literalType.literalValue !== undefined
-            ) {
-                return ClassType.cloneWithLiteral(literalType, !(literalType.literalValue as boolean));
-            }
-
-            return subtype;
-        });
-    }
-
-    return mapSubtypes(type, (subtype) => {
-        if (evaluator.assignType(subtype, literalType)) {
-            return literalType;
+            return undefined;
         }
-
-        // See if the subtype is a subclass of the literal's class. For example,
-        // if it's a literal str, see if the subtype is subclass of str.
-        if (
-            isClassInstance(literalType) &&
-            isLiteralType(literalType) &&
-            isClassInstance(subtype) &&
-            !isLiteralType(subtype)
-        ) {
-            if (evaluator.assignType(ClassType.cloneWithLiteral(literalType, /* value */ undefined), subtype)) {
-                return subtype;
-            }
-        }
-        return undefined;
-    });
+    );
 }
 
 function narrowTypeBasedOnClassPattern(
@@ -720,14 +736,20 @@ function narrowTypeBasedOnClassPattern(
                 }
 
                 if (pattern.arguments.length === 0) {
-                    if (
-                        isClass(classInstance) &&
-                        isClass(subjectSubtypeExpanded) &&
-                        ClassType.isSameGenericClass(classInstance, subjectSubtypeExpanded)
-                    ) {
-                        // We know that this match will always succeed, so we can
-                        // eliminate this subtype.
-                        return undefined;
+                    if (isClass(classInstance) && isClass(subjectSubtypeExpanded)) {
+                        if (ClassType.isDerivedFrom(subjectSubtypeExpanded, classInstance)) {
+                            // We know that this match will always succeed, so we can
+                            // eliminate this subtype.
+                            return undefined;
+                        }
+
+                        // Handle LiteralString as a special case.
+                        if (
+                            ClassType.isBuiltIn(classInstance, 'str') &&
+                            ClassType.isBuiltIn(subjectSubtypeExpanded, 'LiteralString')
+                        ) {
+                            return undefined;
+                        }
                     }
 
                     return subjectSubtypeExpanded;
@@ -765,9 +787,8 @@ function narrowTypeBasedOnClassPattern(
 
     if (!TypeBase.isInstantiable(exprType) && !isNever(exprType)) {
         evaluator.addDiagnostic(
-            getFileInfo(pattern).diagnosticRuleSet.reportGeneralTypeIssues,
             DiagnosticRule.reportGeneralTypeIssues,
-            Localizer.DiagnosticAddendum.typeNotClass().format({ type: evaluator.printType(exprType) }),
+            LocAddendum.typeNotClass().format({ type: evaluator.printType(exprType) }),
             pattern.className
         );
         return NeverType.createNever();
@@ -807,6 +828,7 @@ function narrowTypeBasedOnClassPattern(
                             return undefined;
                         }
 
+                        // Handle NoneType specially.
                         if (
                             isNoneInstance(subjectSubtypeExpanded) &&
                             isInstantiableClass(expandedSubtype) &&
@@ -815,21 +837,31 @@ function narrowTypeBasedOnClassPattern(
                             return subjectSubtypeExpanded;
                         }
 
+                        // Handle Callable specially.
+                        if (isInstantiableClass(expandedSubtype) && ClassType.isBuiltIn(expandedSubtype, 'Callable')) {
+                            const callableType = getUnknownTypeForCallable();
+
+                            if (evaluator.assignType(callableType, subjectSubtypeExpanded)) {
+                                return subjectSubtypeExpanded;
+                            }
+
+                            const subjObjType = convertToInstance(subjectSubtypeExpanded);
+                            if (evaluator.assignType(subjObjType, callableType)) {
+                                return callableType;
+                            }
+
+                            return undefined;
+                        }
+
                         if (isClassInstance(subjectSubtypeExpanded)) {
                             let resultType: Type;
 
                             if (
-                                evaluator.assignType(
-                                    expandedSubtype,
-                                    ClassType.cloneAsInstantiable(subjectSubtypeExpanded)
-                                )
+                                evaluator.assignType(ClassType.cloneAsInstance(expandedSubtype), subjectSubtypeExpanded)
                             ) {
                                 resultType = subjectSubtypeExpanded;
                             } else if (
-                                evaluator.assignType(
-                                    ClassType.cloneAsInstantiable(subjectSubtypeExpanded),
-                                    expandedSubtype
-                                )
+                                evaluator.assignType(subjectSubtypeExpanded, ClassType.cloneAsInstance(expandedSubtype))
                             ) {
                                 resultType = addConditionToType(
                                     convertToInstance(unexpandedSubtype),
@@ -1077,6 +1109,18 @@ function narrowTypeBasedOnValuePattern(
                                 : AnyType.create();
                         }
 
+                        // If both types are literals, we can compare the literal values directly.
+                        if (
+                            isClassInstance(subjectSubtypeExpanded) &&
+                            isLiteralType(subjectSubtypeExpanded) &&
+                            isClassInstance(valueSubtypeExpanded) &&
+                            isLiteralType(valueSubtypeExpanded)
+                        ) {
+                            return ClassType.isLiteralValueSame(valueSubtypeExpanded, subjectSubtypeExpanded)
+                                ? valueSubtypeUnexpanded
+                                : undefined;
+                        }
+
                         // Determine if assignment is supported for this combination of
                         // value subtype and matching subtype.
                         const returnType = evaluator.useSpeculativeMode(pattern.expression, () =>
@@ -1183,10 +1227,9 @@ function getSequencePatternInfo(
     pattern: PatternSequenceNode,
     type: Type
 ): SequencePatternInfo[] {
-    const entryCount = pattern.entries.length;
-    const starEntryIndex = pattern.starEntryIndex;
+    const patternEntryCount = pattern.entries.length;
+    const patternStarEntryIndex = pattern.starEntryIndex;
     const sequenceInfo: SequencePatternInfo[] = [];
-    const minEntryCount = starEntryIndex === undefined ? entryCount : entryCount - 1;
 
     doForEachSubtype(type, (subtype) => {
         const concreteSubtype = evaluator.makeTopLevelTypeVarsConcrete(subtype);
@@ -1205,6 +1248,13 @@ function getSequencePatternInfo(
                     ClassType.isBuiltIn(mroClass, 'bytes') ||
                     ClassType.isBuiltIn(mroClass, 'bytearray')
                 ) {
+                    // This is definitely not a match.
+                    sequenceInfo.push({
+                        subtype,
+                        entryTypes: [],
+                        isIndeterminateLength: true,
+                        isDefiniteNoMatch: true,
+                    });
                     return;
                 }
 
@@ -1223,31 +1273,125 @@ function getSequencePatternInfo(
                 const specializedSequence = partiallySpecializeType(mroClassToSpecialize, concreteSubtype) as ClassType;
 
                 if (isTupleClass(specializedSequence)) {
-                    if (specializedSequence.tupleTypeArguments) {
-                        if (isUnboundedTupleClass(specializedSequence)) {
+                    const typeArgs = specializedSequence.tupleTypeArguments ?? [
+                        { type: UnknownType.create(), isUnbounded: true },
+                    ];
+
+                    const tupleIndeterminateIndex = typeArgs.findIndex(
+                        (t) => t.isUnbounded || isUnpackedVariadicTypeVar(t.type)
+                    );
+
+                    // If the tuple contains an indeterminate entry, expand or remove that
+                    // entry to match the length of the pattern if possible.
+                    if (tupleIndeterminateIndex >= 0) {
+                        while (typeArgs.length < patternEntryCount) {
+                            typeArgs.splice(tupleIndeterminateIndex, 0, typeArgs[tupleIndeterminateIndex]);
+                        }
+
+                        if (typeArgs.length > patternEntryCount) {
+                            typeArgs.splice(tupleIndeterminateIndex, 1);
+                        }
+                    }
+
+                    // If the pattern contains a star entry and there are too many entries
+                    // in the tuple, we can collapse some of them into the star entry.
+                    if (
+                        patternStarEntryIndex !== undefined &&
+                        typeArgs.length >= 2 &&
+                        typeArgs.length > patternEntryCount
+                    ) {
+                        const entriesToCombine = typeArgs.length - patternEntryCount + 1;
+                        const removedEntries = typeArgs.splice(patternStarEntryIndex, entriesToCombine);
+                        typeArgs.splice(patternStarEntryIndex, 0, {
+                            type: combineTypes(removedEntries.map((t) => t.type)),
+                            isUnbounded: removedEntries.every(
+                                (t) => t.isUnbounded || isUnpackedVariadicTypeVar(t.type)
+                            ),
+                        });
+                    }
+
+                    if (typeArgs.length === patternEntryCount) {
+                        let isDefiniteNoMatch = false;
+                        let isPotentialNoMatch = tupleIndeterminateIndex >= 0;
+                        if (patternStarEntryIndex !== undefined && patternEntryCount === 1) {
+                            isPotentialNoMatch = false;
+                        }
+
+                        for (let i = 0; i < patternEntryCount; i++) {
+                            const subPattern = pattern.entries[i];
+                            const typeArg = typeArgs[i].type;
+                            const narrowedType = narrowTypeBasedOnPattern(
+                                evaluator,
+                                typeArg,
+                                subPattern,
+                                /* isPositiveTest */ true
+                            );
+
+                            if (isNever(narrowedType)) {
+                                isDefiniteNoMatch = true;
+                            }
+                        }
+
+                        sequenceInfo.push({
+                            subtype,
+                            entryTypes: isDefiniteNoMatch ? [] : typeArgs.map((t) => t.type),
+                            isIndeterminateLength: false,
+                            isTuple: true,
+                            isDefiniteNoMatch,
+                            isPotentialNoMatch,
+                        });
+                        pushedEntry = true;
+                    }
+
+                    // If the pattern contains a star entry and the pattern associated with
+                    // the star entry is unbounded, we can remove it completely under the
+                    // assumption that the star pattern will capture nothing.
+                    if (patternStarEntryIndex !== undefined) {
+                        let tryMatchStarSequence = false;
+
+                        if (typeArgs.length === patternEntryCount - 1) {
+                            tryMatchStarSequence = true;
+                            typeArgs.splice(patternStarEntryIndex, 0, {
+                                type: AnyType.create(),
+                                isUnbounded: true,
+                            });
+                        } else if (
+                            typeArgs.length === patternEntryCount &&
+                            typeArgs[patternStarEntryIndex].isUnbounded
+                        ) {
+                            tryMatchStarSequence = true;
+                        }
+
+                        if (tryMatchStarSequence) {
+                            let isDefiniteNoMatch = false;
+
+                            for (let i = 0; i < patternEntryCount; i++) {
+                                if (i === patternStarEntryIndex) {
+                                    continue;
+                                }
+
+                                const subPattern = pattern.entries[i];
+                                const typeArg = typeArgs[i].type;
+                                const narrowedType = narrowTypeBasedOnPattern(
+                                    evaluator,
+                                    typeArg,
+                                    subPattern,
+                                    /* isPositiveTest */ true
+                                );
+
+                                if (isNever(narrowedType)) {
+                                    isDefiniteNoMatch = true;
+                                }
+                            }
+
                             sequenceInfo.push({
                                 subtype,
-                                entryTypes: [combineTypes(specializedSequence.tupleTypeArguments.map((t) => t.type))],
-                                isIndeterminateLength: true,
+                                entryTypes: isDefiniteNoMatch ? [] : typeArgs.map((t) => t.type),
+                                isIndeterminateLength: false,
                                 isTuple: true,
-                                isDefiniteNoMatch: false,
+                                isDefiniteNoMatch,
                             });
                             pushedEntry = true;
-                        } else {
-                            if (
-                                specializedSequence.tupleTypeArguments.length >= minEntryCount &&
-                                (starEntryIndex !== undefined ||
-                                    specializedSequence.tupleTypeArguments.length === minEntryCount)
-                            ) {
-                                sequenceInfo.push({
-                                    subtype,
-                                    entryTypes: specializedSequence.tupleTypeArguments.map((t) => t.type),
-                                    isIndeterminateLength: false,
-                                    isTuple: true,
-                                    isDefiniteNoMatch: false,
-                                });
-                                pushedEntry = true;
-                            }
                         }
                     }
                 } else {
@@ -1441,26 +1585,23 @@ export function assignTypeToPatternTargets(
         case ParseNodeType.PatternCapture: {
             if (pattern.isWildcard) {
                 if (!isTypeIncomplete) {
-                    const fileInfo = getFileInfo(pattern);
                     if (isUnknown(narrowedType)) {
                         evaluator.addDiagnostic(
-                            fileInfo.diagnosticRuleSet.reportUnknownVariableType,
                             DiagnosticRule.reportUnknownVariableType,
-                            Localizer.Diagnostic.wildcardPatternTypeUnknown(),
+                            LocMessage.wildcardPatternTypeUnknown(),
                             pattern.target
                         );
                     } else if (isPartlyUnknown(narrowedType)) {
                         const diagAddendum = new DiagnosticAddendum();
                         diagAddendum.addMessage(
-                            Localizer.DiagnosticAddendum.typeOfSymbol().format({
+                            LocAddendum.typeOfSymbol().format({
                                 name: '_',
                                 type: evaluator.printType(narrowedType, { expandTypeAlias: true }),
                             })
                         );
                         evaluator.addDiagnostic(
-                            fileInfo.diagnosticRuleSet.reportUnknownVariableType,
                             DiagnosticRule.reportUnknownVariableType,
-                            Localizer.Diagnostic.wildcardPatternTypePartiallyUnknown() + diagAddendum.getString(),
+                            LocMessage.wildcardPatternTypePartiallyUnknown() + diagAddendum.getString(),
                             pattern.target
                         );
                     }
@@ -1499,7 +1640,7 @@ export function assignTypeToPatternTargets(
                                         evaluator,
                                         mappingSubtypeInfo.typedDict!
                                     );
-                                    const valueInfo = tdEntries.get(keySubtype.literalValue as string);
+                                    const valueInfo = tdEntries.knownItems.get(keySubtype.literalValue as string);
                                     valueTypes.push(valueInfo ? valueInfo.valueType : UnknownType.create());
                                 } else {
                                     valueTypes.push(UnknownType.create());
@@ -1657,17 +1798,15 @@ export function validateClassPattern(evaluator: TypeEvaluator, pattern: PatternC
         exprType.isTypeArgumentExplicit
     ) {
         evaluator.addDiagnostic(
-            getFileInfo(pattern).diagnosticRuleSet.reportGeneralTypeIssues,
             DiagnosticRule.reportGeneralTypeIssues,
-            Localizer.Diagnostic.classPatternTypeAlias().format({ type: evaluator.printType(exprType) }),
+            LocMessage.classPatternTypeAlias().format({ type: evaluator.printType(exprType) }),
             pattern.className
         );
     } else if (!isInstantiableClass(exprType)) {
         if (!isNever(exprType)) {
             evaluator.addDiagnostic(
-                getFileInfo(pattern).diagnosticRuleSet.reportGeneralTypeIssues,
                 DiagnosticRule.reportGeneralTypeIssues,
-                Localizer.DiagnosticAddendum.typeNotClass().format({ type: evaluator.printType(exprType) }),
+                LocAddendum.typeNotClass().format({ type: evaluator.printType(exprType) }),
                 pattern.className
             );
         }
@@ -1678,9 +1817,8 @@ export function validateClassPattern(evaluator: TypeEvaluator, pattern: PatternC
         if (isBuiltIn) {
             if (pattern.arguments.length === 1 && pattern.arguments[0].name) {
                 evaluator.addDiagnostic(
-                    getFileInfo(pattern).diagnosticRuleSet.reportGeneralTypeIssues,
                     DiagnosticRule.reportGeneralTypeIssues,
-                    Localizer.Diagnostic.classPatternBuiltInArgPositional(),
+                    LocMessage.classPatternBuiltInArgPositional(),
                     pattern.arguments[0].name
                 );
             }
@@ -1705,9 +1843,8 @@ export function validateClassPattern(evaluator: TypeEvaluator, pattern: PatternC
 
         if (positionalPatternCount > expectedPatternCount) {
             evaluator.addDiagnostic(
-                getFileInfo(pattern).diagnosticRuleSet.reportGeneralTypeIssues,
                 DiagnosticRule.reportGeneralTypeIssues,
-                Localizer.Diagnostic.classPatternPositionalArgCount().format({
+                LocMessage.classPatternPositionalArgCount().format({
                     type: exprType.details.name,
                     expected: expectedPatternCount,
                     received: positionalPatternCount,
@@ -1748,36 +1885,46 @@ export function getPatternSubtypeNarrowingCallback(
                 const unnarrowedReferenceType = unnarrowedReferenceTypeResult.type;
 
                 return (narrowedSubjectType: Type) => {
-                    let narrowedType: Type | undefined;
+                    let canNarrow = true;
+                    const typesToCombine: Type[] = [];
 
-                    if (isNever(narrowedSubjectType)) {
-                        narrowedType = NeverType.createNever();
-                    } else if (isClassInstance(narrowedSubjectType) && narrowedSubjectType.literalValue !== undefined) {
-                        if (ClassType.isBuiltIn(indexType, 'str')) {
-                            narrowedType = narrowTypeForDiscriminatedDictEntryComparison(
-                                evaluator,
-                                unnarrowedReferenceType,
-                                indexType,
-                                narrowedSubjectType,
-                                /* isPositiveTest */ true
-                            );
-                        } else {
-                            narrowedType = narrowTypeForDiscriminatedTupleComparison(
-                                evaluator,
-                                unnarrowedReferenceType,
-                                indexType,
-                                narrowedSubjectType,
-                                /* isPositiveTest */ true
-                            );
+                    doForEachSubtype(narrowedSubjectType, (subtype) => {
+                        subtype = evaluator.makeTopLevelTypeVarsConcrete(subtype);
+
+                        if (isClassInstance(subtype) && subtype.literalValue !== undefined) {
+                            if (ClassType.isBuiltIn(indexType, 'str')) {
+                                typesToCombine.push(
+                                    narrowTypeForDiscriminatedDictEntryComparison(
+                                        evaluator,
+                                        unnarrowedReferenceType,
+                                        indexType,
+                                        subtype,
+                                        /* isPositiveTest */ true
+                                    )
+                                );
+                            } else {
+                                typesToCombine.push(
+                                    narrowTypeForDiscriminatedTupleComparison(
+                                        evaluator,
+                                        unnarrowedReferenceType,
+                                        indexType,
+                                        subtype,
+                                        /* isPositiveTest */ true
+                                    )
+                                );
+                            }
+                        } else if (!isNever(subtype)) {
+                            // We don't know how to narrow in this case.
+                            canNarrow = false;
                         }
-                    }
+                    });
 
-                    if (!narrowedType) {
+                    if (!canNarrow) {
                         return undefined;
                     }
 
                     return {
-                        type: narrowedType,
+                        type: combineTypes(typesToCombine),
                         isIncomplete: indexTypeResult.isIncomplete || unnarrowedReferenceTypeResult.isIncomplete,
                     };
                 };
@@ -1819,14 +1966,52 @@ export function getPatternSubtypeNarrowingCallback(
         }
     }
 
+    // Look for a subject expression of the form "a.b" where "b" is an attribute
+    // that is annotated with a literal type.
+    if (
+        subjectExpression.nodeType === ParseNodeType.MemberAccess &&
+        isMatchingExpression(reference, subjectExpression.leftExpression)
+    ) {
+        const unnarrowedReferenceTypeResult = evaluator.getTypeOfExpression(
+            subjectExpression.leftExpression,
+            EvaluatorFlags.CallBaseDefaults
+        );
+        const unnarrowedReferenceType = unnarrowedReferenceTypeResult.type;
+
+        return (narrowedSubjectType: Type) => {
+            if (isNever(narrowedSubjectType)) {
+                return { type: NeverType.createNever() };
+            }
+
+            if (!isLiteralTypeOrUnion(narrowedSubjectType)) {
+                return undefined;
+            }
+
+            const resultType = mapSubtypes(narrowedSubjectType, (literalSubtype) => {
+                assert(isClassInstance(literalSubtype) && literalSubtype.literalValue !== undefined);
+
+                return narrowTypeForDiscriminatedLiteralFieldComparison(
+                    evaluator,
+                    unnarrowedReferenceType,
+                    subjectExpression.memberName.value,
+                    literalSubtype,
+                    /* isPositiveTest */ true
+                );
+            });
+
+            return {
+                type: resultType,
+            };
+        };
+    }
+
     return undefined;
 }
 
 function reportUnnecessaryPattern(evaluator: TypeEvaluator, pattern: PatternAtomNode, subjectType: Type): void {
     evaluator.addDiagnostic(
-        getFileInfo(pattern).diagnosticRuleSet.reportUnnecessaryComparison,
         DiagnosticRule.reportUnnecessaryComparison,
-        Localizer.Diagnostic.patternNeverMatches().format({ type: evaluator.printType(subjectType) }),
+        LocMessage.patternNeverMatches().format({ type: evaluator.printType(subjectType) }),
         pattern
     );
 }

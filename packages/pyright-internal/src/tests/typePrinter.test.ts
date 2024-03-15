@@ -23,6 +23,7 @@ import {
     UnboundType,
     UnknownType,
 } from '../analyzer/types';
+import { Uri } from '../common/uri/uri';
 import { ParameterCategory } from '../parser/parseNodes';
 
 function returnTypeCallback(type: FunctionType) {
@@ -45,7 +46,7 @@ test('SimpleTypes', () => {
     assert.strictEqual(printType(unboundType, PrintTypeFlags.None, returnTypeCallback), 'Unbound');
     assert.strictEqual(printType(unboundType, PrintTypeFlags.PythonSyntax, returnTypeCallback), 'Any');
 
-    const moduleType = ModuleType.create('Test', '');
+    const moduleType = ModuleType.create('Test', Uri.empty());
     assert.strictEqual(printType(moduleType, PrintTypeFlags.None, returnTypeCallback), 'Module("Test")');
     assert.strictEqual(printType(moduleType, PrintTypeFlags.PythonSyntax, returnTypeCallback), 'Any');
 });
@@ -68,7 +69,7 @@ test('ClassTypes', () => {
         'A',
         '',
         '',
-        '',
+        Uri.empty(),
         ClassTypeFlags.None,
         0,
         /* declaredMetaclass*/ undefined,
@@ -89,7 +90,7 @@ test('ClassTypes', () => {
         'int',
         '',
         '',
-        '',
+        Uri.empty(),
         ClassTypeFlags.None,
         0,
         /* declaredMetaclass*/ undefined,
@@ -120,11 +121,7 @@ test('FunctionTypes', () => {
         name: 'a',
     });
 
-    FunctionType.addParameter(funcTypeA, {
-        category: ParameterCategory.Simple,
-        hasDeclaredType: true,
-        type: AnyType.create(),
-    });
+    FunctionType.addPositionOnlyParameterSeparator(funcTypeA);
 
     FunctionType.addParameter(funcTypeA, {
         category: ParameterCategory.ArgsList,
@@ -160,11 +157,7 @@ test('FunctionTypes', () => {
         name: 'a',
     });
 
-    FunctionType.addParameter(funcTypeB, {
-        category: ParameterCategory.Simple,
-        hasDeclaredType: true,
-        type: AnyType.create(),
-    });
+    FunctionType.addPositionOnlyParameterSeparator(funcTypeB);
 
     const paramSpecP = TypeVarType.createInstance('P');
     paramSpecP.details.isParamSpec = true;

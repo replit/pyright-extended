@@ -15,6 +15,7 @@ import {
     getBasicDiagnosticRuleSet,
     getBooleanDiagnosticRules,
     getDiagLevelDiagnosticRules,
+    getStandardDiagnosticRuleSet,
     getStrictDiagnosticRuleSet,
     getStrictModeNotOverriddenRules,
 } from '../common/configOptions';
@@ -24,10 +25,11 @@ import { DiagnosticRule } from '../common/diagnosticRules';
 import { convertOffsetToPosition } from '../common/positionUtils';
 import { TextRange } from '../common/textRange';
 import { TextRangeCollection } from '../common/textRangeCollection';
-import { Localizer } from '../localization/localize';
+import { LocAddendum, LocMessage } from '../localization/localize';
 import { Token } from '../parser/tokenizerTypes';
 
 const strictSetting = 'strict';
+const standardSetting = 'standard';
 const basicSetting = 'basic';
 
 export interface CommentDiagnostic {
@@ -72,6 +74,10 @@ export function getFileLevelDirectives(
 
 function _applyStrictRules(ruleSet: DiagnosticRuleSet) {
     _overrideRules(ruleSet, getStrictDiagnosticRuleSet(), getStrictModeNotOverriddenRules());
+}
+
+function _applyStandardRules(ruleSet: DiagnosticRuleSet) {
+    _overwriteRules(ruleSet, getStandardDiagnosticRuleSet());
 }
 
 function _applyBasicRules(ruleSet: DiagnosticRuleSet) {
@@ -148,9 +154,9 @@ function _parsePyrightComment(
 
         if (!isCommentOnOwnLine()) {
             const diagAddendum = new DiagnosticAddendum();
-            diagAddendum.addMessage(Localizer.DiagnosticAddendum.pyrightCommentIgnoreTip());
+            diagAddendum.addMessage(LocAddendum.pyrightCommentIgnoreTip());
             const diag: CommentDiagnostic = {
-                message: Localizer.Diagnostic.pyrightCommentNotOnOwnLine() + diagAddendum.getString(),
+                message: LocMessage.pyrightCommentNotOnOwnLine() + diagAddendum.getString(),
                 range: commentRange,
             };
 
@@ -163,6 +169,8 @@ function _parsePyrightComment(
         // diagnostic rules with their strict counterparts.
         if (operandList.some((s) => s.trim() === strictSetting)) {
             _applyStrictRules(ruleSet);
+        } else if (operandList.some((s) => s.trim() === standardSetting)) {
+            _applyStandardRules(ruleSet);
         } else if (operandList.some((s) => s.trim() === basicSetting)) {
             _applyBasicRules(ruleSet);
         }
@@ -216,7 +224,7 @@ function _parsePyrightOperand(
             (ruleSet as any)[trimmedRule] = diagLevelValue;
         } else {
             const diag: CommentDiagnostic = {
-                message: Localizer.Diagnostic.pyrightCommentInvalidDiagnosticSeverityValue(),
+                message: LocMessage.pyrightCommentInvalidDiagnosticSeverityValue(),
                 range: trimmedRuleValue ? ruleValueRange : ruleRange,
             };
             diagnostics.push(diag);
@@ -227,7 +235,7 @@ function _parsePyrightOperand(
             (ruleSet as any)[trimmedRule] = boolValue;
         } else {
             const diag: CommentDiagnostic = {
-                message: Localizer.Diagnostic.pyrightCommentInvalidDiagnosticBoolValue(),
+                message: LocMessage.pyrightCommentInvalidDiagnosticBoolValue(),
                 range: trimmedRuleValue ? ruleValueRange : ruleRange,
             };
             diagnostics.push(diag);
@@ -235,14 +243,14 @@ function _parsePyrightOperand(
     } else if (trimmedRule) {
         const diag: CommentDiagnostic = {
             message: trimmedRuleValue
-                ? Localizer.Diagnostic.pyrightCommentUnknownDiagnosticRule().format({ rule: trimmedRule })
-                : Localizer.Diagnostic.pyrightCommentUnknownDirective().format({ directive: trimmedRule }),
+                ? LocMessage.pyrightCommentUnknownDiagnosticRule().format({ rule: trimmedRule })
+                : LocMessage.pyrightCommentUnknownDirective().format({ directive: trimmedRule }),
             range: ruleRange,
         };
         diagnostics.push(diag);
     } else {
         const diag: CommentDiagnostic = {
-            message: Localizer.Diagnostic.pyrightCommentMissingDirective(),
+            message: LocMessage.pyrightCommentMissingDirective(),
             range: ruleRange,
         };
         diagnostics.push(diag);

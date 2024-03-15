@@ -2,10 +2,13 @@
 # the alternative syntax form of TypedDict.
 
 from typing import TypedDict
-from typing_extensions import Required, NotRequired
+from typing_extensions import (  # pyright: ignore[reportMissingModuleSource]
+    Required,
+    NotRequired,
+)
 
 Example1 = TypedDict(
-    "Example", {"required": Required[int], "not_required": NotRequired[int]}
+    "Example1", {"required": Required[int], "not_required": NotRequired[int]}
 )
 
 v1_0: Example1 = {"required": 1}
@@ -13,7 +16,7 @@ v1_0: Example1 = {"required": 1}
 # This should generate an error.
 v1_1: Example1 = {"not_required": 1}
 
-Example2 = TypedDict("Example", required=Required[int], not_required=NotRequired[int])
+Example2 = TypedDict("Example2", required=Required[int], not_required=NotRequired[int])
 
 
 v2_0: Example2 = {"required": 1}

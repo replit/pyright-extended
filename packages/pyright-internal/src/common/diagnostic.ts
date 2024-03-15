@@ -11,6 +11,7 @@ import { Commands } from '../commands/commands';
 import { appendArray } from './collectionUtils';
 import { DiagnosticLevel } from './configOptions';
 import { Range, TextRange } from './textRange';
+import { Uri } from './uri/uri';
 
 const defaultMaxDepth = 5;
 const defaultMaxLineCount = 8;
@@ -63,7 +64,7 @@ export interface DiagnosticAction {
 }
 
 export interface DiagnosticWithinFile {
-    filePath: string;
+    uri: Uri;
     diagnostic: Diagnostic;
 }
 
@@ -72,20 +73,15 @@ export interface CreateTypeStubFileAction extends DiagnosticAction {
     moduleName: string;
 }
 
-export interface AddMissingOptionalToParamAction extends DiagnosticAction {
-    action: Commands.addMissingOptionalToParam;
-    offsetOfTypeNode: number;
-}
-
 export interface RenameShadowedFileAction extends DiagnosticAction {
     action: ActionKind.RenameShadowedFileAction;
-    oldFile: string;
-    newFile: string;
+    oldUri: Uri;
+    newUri: Uri;
 }
 
 export interface DiagnosticRelatedInfo {
     message: string;
-    filePath: string;
+    uri: Uri;
     range: Range;
     priority: TaskListPriority;
 }
@@ -123,18 +119,30 @@ export class Diagnostic {
         return this._rule;
     }
 
-    addRelatedInfo(
-        message: string,
-        filePath: string,
-        range: Range,
-        priority: TaskListPriority = TaskListPriority.Normal
-    ) {
-        this._relatedInfo.push({ filePath, message, range, priority });
+    addRelatedInfo(message: string, fileUri: Uri, range: Range, priority: TaskListPriority = TaskListPriority.Normal) {
+        this._relatedInfo.push({ uri: fileUri, message, range, priority });
     }
 
     getRelatedInfo() {
         return this._relatedInfo;
     }
+}
+
+// Compares two diagnostics by location for sorting.
+export function compareDiagnostics(d1: Diagnostic, d2: Diagnostic) {
+    if (d1.range.start.line < d2.range.start.line) {
+        return -1;
+    } else if (d1.range.start.line > d2.range.start.line) {
+        return 1;
+    }
+
+    if (d1.range.start.character < d2.range.start.character) {
+        return -1;
+    } else if (d1.range.start.character > d2.range.start.character) {
+        return 1;
+    }
+
+    return 0;
 }
 
 // Helps to build additional information that can be appended to a diagnostic
