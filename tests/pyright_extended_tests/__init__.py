@@ -8,6 +8,8 @@ import pytest_lsp
 from lsprotocol.types import (
     CompletionParams,
     CompletionList,
+    DocumentFormattingParams,
+    FormattingOptions,
     InitializeParams,
     Position,
     TextDocumentIdentifier,
@@ -127,3 +129,53 @@ async def test_linter(client: LanguageClient):
     assert (
         diagnostics[1].code == "ruff[F401]"
     ), f"Expected second warning to be unused import: {fileuri}"
+
+
+@pytest.mark.asyncio
+async def test_formatting(client: LanguageClient):
+    fileuri = f"file://{testroot}/cases/3.py"
+    contents = dedent(
+        """\
+    import os
+    x     =      "this is\\na test"
+    print(os.getenv(  "PATH",   x))
+    if True:
+                  pass
+    """
+    )
+    expected = dedent(
+        """\
+    import os
+
+    x = "this is\\na test"
+    print(os.getenv("PATH", x))
+    if True:
+        pass
+    """
+    )
+    print(repr(contents))
+    result = client.text_document_did_open(
+        DidOpenTextDocumentParams(
+            text_document=TextDocumentItem(
+                uri=fileuri,
+                language_id="python",
+                text=contents,
+                version=0,
+            )
+        )
+    )
+
+    result = await client.text_document_formatting_async(
+        params=DocumentFormattingParams(
+            text_document=TextDocumentIdentifier(uri=fileuri),
+            options=FormattingOptions(
+                tab_size=4,
+                insert_spaces=True,
+                trim_trailing_whitespace=True,
+            )
+        )
+    )
+
+    assert isinstance(result, list), result
+    assert len(result) > 0
+    assert result[0].new_text == expected
