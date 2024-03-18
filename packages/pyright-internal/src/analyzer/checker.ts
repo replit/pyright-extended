@@ -1704,7 +1704,12 @@ export class Checker extends ParseTreeWalker {
         const moduleName =
             moduleNameNode.leadingDots === 0
                 ? this._importResolver.getModuleNameForImport(uri, execEnv).moduleName
-                : getRelativeModuleName(this._importResolver.fileSystem, this._fileInfo.fileUri, uri);
+                : getRelativeModuleName(
+                      this._importResolver.fileSystem,
+                      this._fileInfo.fileUri,
+                      uri,
+                      this._importResolver.getConfigOptions()
+                  );
 
         if (!moduleName) {
             return undefined;
@@ -1747,7 +1752,7 @@ export class Checker extends ParseTreeWalker {
 
         let isTypeBool = true;
         const diag = new DiagnosticAddendum();
-        this._evaluator.mapSubtypesExpandTypeVars(operandType, /* conditionFilter */ undefined, (expandedSubtype) => {
+        this._evaluator.mapSubtypesExpandTypeVars(operandType, /* options */ undefined, (expandedSubtype) => {
             if (isAnyOrUnknown(expandedSubtype)) {
                 return undefined;
             }
@@ -3135,21 +3140,31 @@ export class Checker extends ParseTreeWalker {
                 sawFinal = true;
             }
 
-            if (decl.type === DeclarationType.Variable && decl.inferredTypeSource) {
-                if (sawAssignment) {
-                    // We check for assignment of Final instance and class variables
-                    // the type evaluator because we need to take into account whether
-                    // the assignment is within an `__init__` method, so ignore class
-                    // scopes here.
-                    if (scopeType !== ScopeType.Class) {
-                        this._evaluator.addDiagnostic(
-                            DiagnosticRule.reportGeneralTypeIssues,
-                            LocMessage.finalReassigned().format({ name }),
-                            decl.node
-                        );
+            let reportRedeclaration = false;
+
+            if (decl.type === DeclarationType.Variable) {
+                if (decl.inferredTypeSource) {
+                    if (sawAssignment) {
+                        // We check for assignment of Final instance and class variables
+                        // the type evaluator because we need to take into account whether
+                        // the assignment is within an `__init__` method, so ignore class
+                        // scopes here.
+                        if (scopeType !== ScopeType.Class) {
+                            reportRedeclaration = true;
+                        }
                     }
+                    sawAssignment = true;
                 }
-                sawAssignment = true;
+            } else {
+                reportRedeclaration = true;
+            }
+
+            if (reportRedeclaration) {
+                this._evaluator.addDiagnostic(
+                    DiagnosticRule.reportGeneralTypeIssues,
+                    LocMessage.finalReassigned().format({ name }),
+                    getNameNodeForDeclaration(decl) ?? decl.node
+                );
             }
         });
 
@@ -6117,9 +6132,11 @@ export class Checker extends ParseTreeWalker {
             }
 
             // If the symbol has no declaration, and the type is inferred,
-            // skip this check.
-            if (!symbol.hasTypedDeclarations() && !this._evaluator.isFinalVariable(symbol)) {
-                return;
+            // skip the type validation but still check for other issues like
+            // Final overrides and class/instance variable mismatches.
+            let validateType = true;
+            if (!symbol.hasTypedDeclarations()) {
+                validateType = false;
             }
 
             // Get the symbol type defined in this class.
@@ -6154,7 +6171,13 @@ export class Checker extends ParseTreeWalker {
 
                 firstOverride = firstOverride ?? baseClassAndSymbol;
 
-                this._validateBaseClassOverride(baseClassAndSymbol, symbol, typeOfSymbol, classType, name);
+                this._validateBaseClassOverride(
+                    baseClassAndSymbol,
+                    symbol,
+                    validateType ? typeOfSymbol : AnyType.create(),
+                    classType,
+                    name
+                );
             }
 
             if (!firstOverride) {
