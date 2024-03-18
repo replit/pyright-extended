@@ -3,6 +3,7 @@
     "version": "0.1.0",
     "private": true,
     "dependencies": {
+        "@wasm-fmt/ruff_fmt": "^0.5.0",
         "vscode-languageserver": "8.1.0",
         "vscode-uri": "^3.0.7"
     },
