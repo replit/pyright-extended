@@ -186,8 +186,8 @@ describe(`Basic language server tests`, () => {
         assert.equal(diagnostics[0]!.diagnostics.length, 6);
 
         // Make sure the error has a special rule
-        assert.equal(diagnostics[0].diagnostics[1].code, 'reportUnusedImport');
-        assert.equal(diagnostics[0].diagnostics[3].code, 'reportUnusedImport');
-        assert.equal(diagnostics[0].diagnostics[5].code, 'reportUnusedImport');
+        assert.equal(diagnostics[0].diagnostics[1].code, 'pyright[reportUnusedImport]');
+        assert.equal(diagnostics[0].diagnostics[3].code, 'ruff[F401]');
+        assert.equal(diagnostics[0].diagnostics[5].code, 'ruff[F401]');
     });
 });
