@@ -2,7 +2,7 @@
     "name": "vscode-pyright",
     "displayName": "Pyright",
     "description": "VS Code static type checking for Python",
-    "version": "1.1.353",
+    "version": "1.1.354",
     "private": true,
     "license": "MIT",
     "author": {
@@ -1317,6 +1317,22 @@
                                 "boolean"
                             ],
                             "description": "Diagnostics for the use of unbound variables.",
+                            "default": "error",
+                            "enum": [
+                                "none",
+                                "information",
+                                "warning",
+                                "error",
+                                true,
+                                false
+                            ]
+                        },
+                        "reportUnhashable": {
+                            "type": [
+                                "string",
+                                "boolean"
+                            ],
+                            "description": "Diagnostics for the use of an unhashable object in a container that requires hashability.",
                             "default": "error",
                             "enum": [
                                 "none",

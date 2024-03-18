@@ -7,11 +7,6 @@
     "author": {
         "name": "Replit"
     },
-    "contributors": [
-        {
-            "name": "Microsoft"
-        }
-    ],
     "publisher": "Replit",
     "engines": {
         "node": ">=14.0.0"
@@ -48,5 +43,10 @@
     "bin": {
         "pyright": "index.js",
         "pyright-langserver": "langserver.index.js"
-    }
+    },
+    "contributors": [
+        {
+            "name": "Microsoft"
+        }
+    ]
 }
