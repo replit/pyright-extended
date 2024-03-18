@@ -5,8 +5,10 @@
 #        tracking upstream 1.1.353 with the intent to bump to 1.1.354:
 #
 # $ scripts/set-metadata.sh them 1.1.353  # Revert to the last checkpoint
+# $ npm install                           # Regenerate lockfile
 # $ git merge --no-edit 1.1.354           # Sync to desired tag
 # $ scripts/set-metadata.sh us 2.0.9      # Reset metadata to next release
+# $ npm install                           # Regenerate lockfile
 
 die() {
     echo "$@" >&2
@@ -68,23 +70,6 @@ modify_packages() {
     echo "$contents" > "$target"
 }
 
-modify_lock() {
-    target="packages/pyright/package-lock.json"
-    name="$1"; shift || die 'Missing name'
-    version="$1"; shift || die 'Missing version'
-
-    contents="$(
-        jq --indent 4 \
-            --arg name "$name" \
-            --arg version "$version" \
-            '.name |= $name
-            | .version |= $version
-            | .packages[""] |= (.name |= $name | .version |= $version)' \
-            < "$target"
-    )"
-    echo "$contents" > "$target"
-}
-
 main() {
     direction="$1"; shift || die 'Missing direction'
     version="$1"; shift || die 'Missing version'
@@ -97,7 +82,6 @@ main() {
             --author "Microsoft Corporation" \
             --contributors 'null' \
             --publisher "Microsoft Corporation"
-        modify_lock "pyright" "$version"
     elif [ "$direction" = us ]; then
         modify_packages \
             --name "@replit/pyright-extended" \
@@ -107,7 +91,6 @@ main() {
             --author "Replit" \
             --contributors '[{"name":"Microsoft"}]' \
             --publisher "Replit"
-        modify_lock "@replit/pyright-extended" "$version"
     fi
 }
 
