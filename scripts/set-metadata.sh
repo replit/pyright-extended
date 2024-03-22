@@ -70,6 +70,18 @@ modify_packages() {
     echo "$contents" > "$target"
 }
 
+modify_internal_packages() {
+    target="packages/pyright-internal/package.json"
+    version="$1"; shift || die 'Missing version'
+    contents="$(
+    jq --indent 4 \
+        --arg version "$version" \
+        '.version |= $version' \
+        < "$target"
+    )"
+    echo "$contents" > "$target"
+}
+
 main() {
     direction="$1"; shift || die 'Missing direction'
     version="$1"; shift || die 'Missing version'
@@ -82,6 +94,7 @@ main() {
             --author "Microsoft Corporation" \
             --contributors 'null' \
             --publisher "Microsoft Corporation"
+        modify_internal_packages "$version"
     elif [ "$direction" = us ]; then
         modify_packages \
             --name "@replit/pyright-extended" \
@@ -91,6 +104,7 @@ main() {
             --author "Replit" \
             --contributors '[{"name":"Microsoft"}]' \
             --publisher "Replit"
+        modify_internal_packages "$version"
     fi
 }
 
