@@ -11,7 +11,9 @@ import { MessagePort, parentPort, TransferListItem } from 'worker_threads';
 import { OperationCanceledException, setCancellationFolderName } from './common/cancellationUtils';
 import { ConfigOptions } from './common/configOptions';
 import { ConsoleInterface, LogLevel } from './common/console';
+import { isThenable } from './common/core';
 import * as debug from './common/debug';
+import { PythonVersion } from './common/pythonVersion';
 import { createFromRealFileSystem, RealTempFile } from './common/realFileSystem';
 import { ServiceProvider } from './common/serviceProvider';
 import './common/serviceProviderExtensions';
@@ -98,6 +100,9 @@ export function serializeReplacer(key: string, value: any) {
     if (Uri.isUri(value) && value.toJsonObj !== undefined) {
         return { __serialized_uri_val: value.toJsonObj() };
     }
+    if (value instanceof PythonVersion) {
+        return { __serialized_version_val: value.toString() };
+    }
     if (value instanceof Map) {
         return { __serialized_map_val: [...value] };
     }
@@ -124,6 +129,9 @@ export function deserializeReviver(key: string, value: any) {
     if (value && typeof value === 'object') {
         if (value.__serialized_uri_val !== undefined) {
             return Uri.fromJsonObj(value.__serialized_uri_val);
+        }
+        if (value.__serialized_version_val) {
+            return PythonVersion.fromString(value.__serialized_version_val);
         }
         if (value.__serialized_map_val) {
             return new Map(value.__serialized_map_val);
@@ -155,10 +163,39 @@ export interface MessagePoster {
     postMessage(value: any, transferList?: ReadonlyArray<TransferListItem>): void;
 }
 
-export function run<T = any>(code: () => T, port: MessagePoster, serializer = serialize) {
+export function run<T = any>(code: () => Promise<T>, port: MessagePoster): Promise<void>;
+export function run<T = any>(
+    code: () => Promise<T>,
+    port: MessagePoster,
+    serializer: (obj: any) => string
+): Promise<void>;
+export function run<T = any>(code: () => T, port: MessagePoster): void;
+export function run<T = any>(code: () => T, port: MessagePoster, serializer: (obj: any) => string): void;
+export function run<T = any>(
+    code: () => T | Promise<T>,
+    port: MessagePoster,
+    serializer = serialize
+): void | Promise<void> {
     try {
         const result = code();
-        port.postMessage({ kind: 'ok', data: serializer(result) });
+        if (!isThenable(result)) {
+            port.postMessage({ kind: 'ok', data: serializer(result) });
+            return;
+        }
+
+        return result.then(
+            (r) => {
+                port.postMessage({ kind: 'ok', data: serializer(r) });
+            },
+            (e) => {
+                if (OperationCanceledException.is(e)) {
+                    port.postMessage({ kind: 'cancelled', data: e.message });
+                    return;
+                }
+
+                port.postMessage({ kind: 'failed', data: `Exception: ${e.message} in ${e.stack}` });
+            }
+        );
     } catch (e: any) {
         if (OperationCanceledException.is(e)) {
             port.postMessage({ kind: 'cancelled', data: e.message });
