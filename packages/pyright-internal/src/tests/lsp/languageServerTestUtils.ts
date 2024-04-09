@@ -265,16 +265,26 @@ function createServerConnection(testServerData: CustomLSP.TestServerStartOptions
     return connection;
 }
 
-export async function waitForDiagnostics(info: PyrightServerInfo, timeout = 10000) {
+export async function waitForDiagnostics(info: PyrightServerInfo, expectedCount: number, timeout = 10000) {
     const deferred = createDeferred<void>();
+    // Replit(dstewart): We've got a bit of an issue with the Windows CI job.
+    // A bit of a Schrodinger's bug situation, since adding console.log seems
+    // to add just enough latency to cause the tests to pass. I presume that
+    // what we're seeing is we're getting two responses, first with 3 responses,
+    // then immediately after one with six responses.
+    const responseLengths: number[] = [];
     const disposable = info.diagnosticsEvent((params) => {
         if (params.diagnostics.length > 0) {
+            responseLengths.push(params.diagnostics.length);
+        }
+        if (params.diagnostics.length === expectedCount) {
             deferred.resolve();
         }
     });
     const timer = setTimeout(() => deferred.reject('Timed out waiting for diagnostics'), timeout);
     try {
         await deferred.promise;
+        assert.equal(responseLengths.length, 1, 'We had more than one result! ' + JSON.stringify(responseLengths));
     } finally {
         clearTimeout(timer);
         disposable.dispose();
