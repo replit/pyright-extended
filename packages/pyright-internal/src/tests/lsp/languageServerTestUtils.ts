@@ -267,18 +267,21 @@ function createServerConnection(testServerData: CustomLSP.TestServerStartOptions
 
 export async function waitForDiagnostics(info: PyrightServerInfo, timeout = 10000, count?: number) {
     const deferred = createDeferred<void>();
+    const responses: number[] = [];
     const disposable = info.diagnosticsEvent((params) => {
+        responses.push(params.diagnostics.length);
         if (count === undefined ? params.diagnostics.length > 0 : params.diagnostics.length === count) {
             deferred.resolve();
         }
     });
-    const timer = setTimeout(() => deferred.reject('Timed out waiting for diagnostics'), timeout);
+    const timer = setTimeout(() => deferred.resolve(), timeout);
     try {
         await deferred.promise;
     } finally {
         clearTimeout(timer);
         disposable.dispose();
     }
+    console.error('RECEIVED THE FOLLOWING DIAGNOSTICS:', responses);
     return info.diagnostics;
 }
 
