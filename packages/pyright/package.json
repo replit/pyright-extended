@@ -2,7 +2,7 @@
     "name": "@replit/pyright-extended",
     "displayName": "pyright-extended",
     "description": "Extending pyright with yapf + ruff",
-    "version": "2.0.10",
+    "version": "2.0.11",
     "license": "MIT",
     "author": {
         "name": "Replit"
