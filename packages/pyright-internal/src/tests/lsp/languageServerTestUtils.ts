@@ -265,10 +265,10 @@ function createServerConnection(testServerData: CustomLSP.TestServerStartOptions
     return connection;
 }
 
-export async function waitForDiagnostics(info: PyrightServerInfo, timeout = 10000) {
+export async function waitForDiagnostics(info: PyrightServerInfo, timeout = 10000, count?: number) {
     const deferred = createDeferred<void>();
     const disposable = info.diagnosticsEvent((params) => {
-        if (params.diagnostics.length > 0) {
+        if (count === undefined ? params.diagnostics.length > 0 : params.diagnostics.length === count) {
             deferred.resolve();
         }
     });

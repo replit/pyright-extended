@@ -182,7 +182,7 @@ describe(`Basic language server tests`, () => {
         await openFile(info, 'marker');
 
         // Wait for the diagnostics to publish
-        const diagnostics = await waitForDiagnostics(info);
+        const diagnostics = await waitForDiagnostics(info, 10000, 6);
         assert.equal(diagnostics[0]!.diagnostics.length, 6);
 
         // Make sure the error has a special rule
