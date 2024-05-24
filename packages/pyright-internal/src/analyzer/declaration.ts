@@ -32,7 +32,7 @@ import {
     YieldNode,
 } from '../parser/parseNodes';
 
-export const UnresolvedModuleMarker = Uri.file('*** unresolved module ***', /* isCaseSensitive */ true);
+export const UnresolvedModuleMarker = Uri.constant('*** unresolved module ***');
 
 export const enum DeclarationType {
     Intrinsic,
@@ -175,6 +175,9 @@ export interface VariableDeclaration extends DeclarationBase {
 
     // If set, indicates an alternative node to use to determine the type of the variable.
     alternativeTypeNode?: ExpressionNode;
+
+    // Is the declaration an assignment through an explicit nonlocal or global binding?
+    isExplicitBinding?: boolean;
 }
 
 // Alias declarations are used for imports. They are resolved

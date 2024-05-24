@@ -38,7 +38,7 @@ import * as DeclarationUtils from './declarationUtils';
 import { SymbolWithScope } from './scope';
 import { Symbol } from './symbol';
 import { PrintTypeFlags } from './typePrinter';
-import { AssignTypeFlags, ClassMember, InferenceContext, MemberAccessFlags } from './typeUtils';
+import { AssignTypeFlags, ClassMember, InferenceContext, MemberAccessFlags, UniqueSignatureTracker } from './typeUtils';
 import { TypeVarContext } from './typeVarContext';
 import {
     AnyType,
@@ -204,6 +204,10 @@ export interface TypeResult<T extends Type = Type> {
     // a __setattr__ method that is asymmetric with respect to the
     // corresponding __getattr__?
     isAsymmetricAccessor?: boolean;
+
+    // For member access operations that are 'set', this is the narrowed
+    // type when considering the declared type of the member.
+    narrowedTypeForSet?: Type | undefined;
 
     // Is the type wrapped in a "Required", "NotRequired" or "ReadOnly" class?
     isRequired?: boolean;
@@ -412,6 +416,10 @@ export interface ClassMemberLookup {
     // to __get__ and __set__ types?
     isAsymmetricAccessor: boolean;
 
+    // For member access operations that are 'set', this is the narrowed
+    // type when considering the declared type of the member.
+    narrowedTypeForSet?: Type;
+
     // Deprecation messages related to magic methods invoked via the member access.
     memberAccessDeprecationInfo?: MemberAccessDeprecationInfo;
 }
@@ -450,6 +458,11 @@ export interface MapSubtypesOptions {
     expandCallback?: (type: Type) => Type;
 }
 
+export interface CallSiteEvaluationInfo {
+    errorNode: ExpressionNode;
+    args: ValidateArgTypeParams[];
+}
+
 export interface TypeEvaluator {
     runWithCancellationToken<T>(token: CancellationToken, callback: () => T): T;
 
@@ -483,7 +496,8 @@ export interface TypeEvaluator {
         typeResult: TypeResult<OverloadedFunctionType>,
         typeVarContext: TypeVarContext | undefined,
         skipUnknownArgCheck: boolean,
-        inferenceContext: InferenceContext | undefined
+        inferenceContext: InferenceContext | undefined,
+        signatureTracker: UniqueSignatureTracker | undefined
     ) => CallResult;
     validateInitSubclassArgs: (node: ClassNode, classType: ClassType) => void;
 
@@ -519,7 +533,11 @@ export interface TypeEvaluator {
         emitNotIterableError?: boolean
     ) => TypeResult | undefined;
     getGetterTypeFromProperty: (propertyClass: ClassType, inferTypeIfNeeded: boolean) => Type | undefined;
-    getTypeOfArgument: (arg: FunctionArgument) => TypeResult;
+    getTypeOfArgument: (
+        arg: FunctionArgument,
+        inferenceContext: InferenceContext | undefined,
+        signatureTracker: UniqueSignatureTracker | undefined
+    ) => TypeResult;
     markNamesAccessed: (node: ParseNode, names: string[]) => void;
     expandPromotionTypes: (node: ParseNode, type: Type) => Type;
     makeTopLevelTypeVarsConcrete: (type: Type, makeParamSpecsConcrete?: boolean) => Type;
@@ -540,7 +558,7 @@ export interface TypeEvaluator {
     getInferredTypeOfDeclaration: (symbol: Symbol, decl: Declaration) => Type | undefined;
     getDeclaredTypeForExpression: (expression: ExpressionNode, usage?: EvaluatorUsage) => Type | undefined;
     getFunctionDeclaredReturnType: (node: FunctionNode) => Type | undefined;
-    getFunctionInferredReturnType: (type: FunctionType, args?: ValidateArgTypeParams[]) => Type;
+    getFunctionInferredReturnType: (type: FunctionType, callSiteInfo?: CallSiteEvaluationInfo) => Type;
     getBestOverloadForArguments: (
         errorNode: ExpressionNode,
         typeResult: TypeResult<OverloadedFunctionType>,
@@ -575,7 +593,7 @@ export interface TypeEvaluator {
         baseType: ClassType | undefined,
         memberType: FunctionType | OverloadedFunctionType,
         memberClass?: ClassType,
-        treatConstructorAsClassMember?: boolean,
+        treatConstructorAsClassMethod?: boolean,
         selfType?: ClassType | TypeVarType,
         diag?: DiagnosticAddendum,
         recursionCount?: number
@@ -604,9 +622,10 @@ export interface TypeEvaluator {
         errorNode: ExpressionNode,
         argList: FunctionArgument[],
         callTypeResult: TypeResult,
-        typeVarContext?: TypeVarContext,
-        skipUnknownArgCheck?: boolean,
-        inferenceContext?: InferenceContext
+        typeVarContext: TypeVarContext | undefined,
+        skipUnknownArgCheck: boolean | undefined,
+        inferenceContext: InferenceContext | undefined,
+        signatureTracker: UniqueSignatureTracker | undefined
     ) => CallResult;
     validateTypeArg: (argResult: TypeResultWithNode, options?: ValidateTypeArgsOptions) => boolean;
     assignTypeToExpression: (

@@ -1,6 +1,6 @@
 # This sample tests the TypeIs form.
 
-from typing import Any, Literal, Mapping, Sequence, TypeVar, Union
+from typing import Any, Callable, Literal, Mapping, Sequence, TypeVar, Union
 from typing_extensions import TypeIs  # pyright: ignore[reportMissingModuleSource]
 
 
@@ -33,7 +33,7 @@ def is_list(val: object) -> TypeIs[list[Any]]:
 
 def func3(val: dict[str, str] | list[str] | list[int] | Sequence[int]):
     if is_list(val):
-        reveal_type(val, expected_text="list[str] | list[int] | list[Any]")
+        reveal_type(val, expected_text="list[str] | list[int]")
     else:
         reveal_type(val, expected_text="dict[str, str] | Sequence[int]")
 
@@ -88,7 +88,42 @@ def is_marsupial(val: Animal) -> TypeIs[Kangaroo | Koala]:
 
 
 # This should generate an error because list[T] isn't consistent with list[T | None].
-def has_no_nones(
-    val: list[T | None],
-) -> TypeIs[list[T]]:
+def has_no_nones(val: list[T | None]) -> TypeIs[list[T]]:
     return None not in val
+
+
+def takes_int_typeis(f: Callable[[object], TypeIs[int]]) -> None:
+    pass
+
+
+def int_typeis(val: object) -> TypeIs[int]:
+    return isinstance(val, int)
+
+
+def bool_typeis(val: object) -> TypeIs[bool]:
+    return isinstance(val, bool)
+
+
+takes_int_typeis(int_typeis)
+
+# This should generate an error because TypeIs is invariant.
+takes_int_typeis(bool_typeis)
+
+
+def is_two_element_tuple(val: tuple[T, ...]) -> TypeIs[tuple[T, T]]:
+    return len(val) == 2
+
+
+def func7(names: tuple[str, ...]):
+    if is_two_element_tuple(names):
+        reveal_type(names, expected_text="tuple[str, str]")
+    else:
+        reveal_type(names, expected_text="tuple[str, ...]")
+
+
+def is_int(obj: type) -> TypeIs[type[int]]: ...
+
+
+def func8(x: type) -> None:
+    if is_int(x):
+        reveal_type(x, expected_text="type[int]")

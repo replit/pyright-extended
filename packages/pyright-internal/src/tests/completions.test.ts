@@ -799,7 +799,7 @@ test('completion quote trigger', async () => {
     const state = parseAndGetTestState(code).state;
     const marker = state.getMarkerByName('marker');
     const filePath = marker.fileName;
-    const uri = Uri.file(filePath);
+    const uri = Uri.file(filePath, state.serviceProvider);
     const position = state.convertOffsetToPosition(filePath, marker.position);
 
     const options: CompletionOptions = {
@@ -837,7 +837,7 @@ test('completion quote trigger - middle', async () => {
     const state = parseAndGetTestState(code).state;
     const marker = state.getMarkerByName('marker');
     const filePath = marker.fileName;
-    const uri = Uri.file(filePath);
+    const uri = Uri.file(filePath, state.serviceProvider);
     const position = state.convertOffsetToPosition(filePath, marker.position);
 
     const options: CompletionOptions = {
@@ -883,7 +883,7 @@ test('auto import sort text', async () => {
     while (state.workspace.service.test_program.analyze());
 
     const filePath = marker.fileName;
-    const uri = Uri.file(filePath);
+    const uri = Uri.file(filePath, state.serviceProvider);
     const position = state.convertOffsetToPosition(filePath, marker.position);
 
     const options: CompletionOptions = {
@@ -1148,7 +1148,7 @@ test('Enum member', async () => {
                 {
                     label: 'this',
                     kind: CompletionItemKind.EnumMember,
-                    documentation: '```python\nthis: Literal[MyEnum.this]\n```',
+                    documentation: '```python\nthis: int\n```',
                 },
             ],
         },
