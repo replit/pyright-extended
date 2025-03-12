@@ -9,6 +9,7 @@
 import assert from 'assert';
 
 import {
+    findNodeByOffset,
     getDottedName,
     getDottedNameWithGivenNodeAsLastName,
     getFirstAncestorOrSelfOfKind,
@@ -25,7 +26,6 @@ import {
     printExpression,
 } from '../analyzer/parseTreeUtils';
 import { TextRange, rangesAreEqual } from '../common/textRange';
-import { Uri } from '../common/uri/uri';
 import { MemberAccessNode, NameNode, ParseNodeType, StringNode, isExpressionNode } from '../parser/parseNodes';
 import { TestState, getNodeAtMarker, getNodeForRange, parseAndGetTestState } from './harness/fourslash/testState';
 
@@ -133,7 +133,7 @@ test('getDottedName', () => {
     function getDottedNameString(marker: string) {
         const node = getNodeForRange(state, marker);
         return getDottedName(node as NameNode | MemberAccessNode)
-            ?.map((n) => n.value)
+            ?.map((n) => n.d.value)
             .join('.');
     }
 });
@@ -157,7 +157,7 @@ test('getFirstNameOfDottedName', () => {
 
     function getDottedNameString(marker: string) {
         const node = getNodeForRange(state, marker);
-        return getFirstNameOfDottedName(node as NameNode | MemberAccessNode)?.value ?? '';
+        return getFirstNameOfDottedName(node as NameNode | MemberAccessNode)?.d.value ?? '';
     }
 });
 
@@ -319,9 +319,107 @@ test('printExpression', () => {
     }
 });
 
+test('findNodeByOffset', () => {
+    const code = `
+//// class A:
+////     def read(self): pass
+////
+//// class B(A):
+////     x1 = 1
+////     def r[|/*marker*/|]
+////
+    `;
+
+    const state = parseAndGetTestState(code).state;
+    const range = state.getRangeByMarkerName('marker')!;
+    const sourceFile = state.program.getBoundSourceFile(range.marker!.fileUri)!;
+
+    const node = findNodeByOffset(sourceFile.getParseResults()!.parserOutput.parseTree, range.pos);
+    assert.strictEqual(node?.nodeType, ParseNodeType.Name);
+    assert.strictEqual((node as NameNode).d.value, 'r');
+});
+
+test('findNodeByOffset with binary search', () => {
+    const code = `
+//// class A:
+////     def read(self): pass
+////
+//// class B(A):
+////     x1 = 1
+////     x2 = 2
+////     x3 = 3
+////     x4 = 4
+////     x5 = 5
+////     x6 = 6
+////     x7 = 7
+////     x8 = 8
+////     x9 = 9
+////     x10 = 10
+////     x11 = 11
+////     x12 = 12
+////     x13 = 13
+////     x14 = 14
+////     x15 = 15
+////     x16 = 16
+////     x17 = 17
+////     x18 = 18
+////     x19 = 19
+////     def r[|/*marker*/|]
+////
+    `;
+
+    const state = parseAndGetTestState(code).state;
+    const range = state.getRangeByMarkerName('marker')!;
+    const sourceFile = state.program.getBoundSourceFile(range.marker!.fileUri)!;
+
+    const node = findNodeByOffset(sourceFile.getParseResults()!.parserOutput.parseTree, range.pos);
+    assert.strictEqual(node?.nodeType, ParseNodeType.Name);
+    assert.strictEqual((node as NameNode).d.value, 'r');
+});
+
+test('findNodeByOffset with binary search choose earliest match', () => {
+    const code = `
+//// class A:
+////     def read(self): pass
+////
+//// class B(A):
+////     x1 = 1
+////     x2 = 2
+////     x3 = 3
+////     x4 = 4
+////     x5 = 5
+////     x6 = 6
+////     x7 = 7
+////     x8 = 8
+////     x9 = 9
+////     x10 = 10
+////     x11 = 11
+////     x12 = 12
+////     x13 = 13
+////     x14 = 14
+////     x15 = 15
+////     x16 = 16
+////     x17 = 17
+////     x18 = 18
+////     x19 = 19
+////     def r[|/*marker*/|]
+////     x20 = 20
+////     x21 = 21
+////
+    `;
+
+    const state = parseAndGetTestState(code).state;
+    const range = state.getRangeByMarkerName('marker')!;
+    const sourceFile = state.program.getBoundSourceFile(range.marker!.fileUri)!;
+
+    const node = findNodeByOffset(sourceFile.getParseResults()!.parserOutput.parseTree, range.pos);
+    assert.strictEqual(node?.nodeType, ParseNodeType.Name);
+    assert.strictEqual((node as NameNode).d.value, 'r');
+});
+
 function testNodeRange(state: TestState, markerName: string, type: ParseNodeType, includeTrailingBlankLines = false) {
     const range = state.getRangeByMarkerName(markerName)!;
-    const sourceFile = state.program.getBoundSourceFile(Uri.file(range.marker!.fileName))!;
+    const sourceFile = state.program.getBoundSourceFile(range.marker!.fileUri)!;
 
     const statementNode = getFirstAncestorOrSelfOfKind(getNodeAtMarker(state, markerName), type)!;
     const statementRange = getFullStatementRange(statementNode, sourceFile.getParseResults()!, {

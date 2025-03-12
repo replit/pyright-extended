@@ -1,7 +1,7 @@
 # This sample tests the handling of the @override decorator as described
 # in PEP 698.
 
-from typing import Callable
+from typing import Callable, Protocol
 from typing_extensions import (  # pyright: ignore[reportMissingModuleSource]
     Any,
     overload,
@@ -99,3 +99,23 @@ class G(F):
     @evil_wrapper
     def method1(self):
         pass
+
+
+class H(Protocol):
+    pass
+
+
+class I(H, Protocol):
+    @override
+    # This should generate an error because method1 isn't present
+    # in the base.
+    def method1(self):
+        pass
+
+    @overload
+    @override
+    # This should generate an error because method2 isn't present
+    # in the base.
+    def method2(self, x: int) -> int: ...
+    @overload
+    def method2(self, x: str) -> str: ...

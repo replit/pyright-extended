@@ -68,3 +68,32 @@ class Author(Model):
 
 reveal_type(ForeignKey(Author, null=False), expected_text="ForeignKey[Author]")
 reveal_type(ForeignKey(Author, null=True), expected_text="ForeignKey[Author | None]")
+
+
+_T3 = TypeVar("_T3")
+_T4 = TypeVar("_T4")
+_S1 = TypeVar("_S1")
+_S2 = TypeVar("_S2")
+
+
+class Class1(Generic[_T3, _T4]):
+    def __init__(self: "Class1[_S1, _S2]", value1: _S1, value2: _S2) -> None:
+        ...
+
+
+reveal_type(Class1(0, ""), expected_text="Class1[int, str]")
+
+
+class Class2(Generic[_T3, _T4]):
+    def __init__(self: "Class2[_S2, _S1]", value1: _S1, value2: _S2) -> None:
+        ...
+
+
+reveal_type(Class2(0, ""), expected_text="Class2[str, int]")
+
+
+class Class3(Generic[_T3, _T4]):
+    # This should generate an error because class-scoped TypeVars are not
+    # allowed in the "self" type annotation for an __init__ method.
+    def __init__(self: "Class3[_T3, _T4]", value1: _T3, value2: _T4) -> None:
+        ...

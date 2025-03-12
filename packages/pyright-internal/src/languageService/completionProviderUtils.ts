@@ -9,7 +9,7 @@
 import { InsertTextFormat, MarkupContent, MarkupKind, TextEdit } from 'vscode-languageserver-types';
 
 import { Declaration, DeclarationType } from '../analyzer/declaration';
-import { convertDocStringToMarkdown, convertDocStringToPlainText } from '../analyzer/docStringConversion';
+import { isBuiltInModule } from '../analyzer/typeDocStringUtils';
 import { TypeEvaluator } from '../analyzer/typeEvaluatorTypes';
 import { isProperty } from '../analyzer/typeUtils';
 import {
@@ -22,10 +22,11 @@ import {
     isClassInstance,
     isFunction,
     isModule,
-    isOverloadedFunction,
+    isOverloaded,
 } from '../analyzer/types';
 import { SignatureDisplayType } from '../common/configOptions';
 import { TextEditAction } from '../common/editAction';
+import { ServiceProvider } from '../common/serviceProvider';
 import { Uri } from '../common/uri/uri';
 import { getToolTipForType } from './tooltipUtils';
 
@@ -84,19 +85,19 @@ export function getTypeDetail(
     switch (primaryDecl.type) {
         case DeclarationType.Intrinsic:
         case DeclarationType.Variable:
-        case DeclarationType.Parameter:
-        case DeclarationType.TypeParameter: {
+        case DeclarationType.Param:
+        case DeclarationType.TypeParam: {
             let expandTypeAlias = false;
             if (type && TypeBase.isInstantiable(type)) {
                 const typeAliasInfo = getTypeAliasInfo(type);
                 if (typeAliasInfo) {
-                    if (typeAliasInfo.name === name) {
+                    if (typeAliasInfo.shared.name === name) {
                         expandTypeAlias = true;
                     }
                 }
             }
             // Handle the case where type is a function and was assigned to a variable.
-            if (type.category === TypeCategory.OverloadedFunction || type.category === TypeCategory.Function) {
+            if (type.category === TypeCategory.Overloaded || type.category === TypeCategory.Function) {
                 return getToolTipForType(
                     type,
                     /* label */ '',
@@ -112,7 +113,7 @@ export function getTypeDetail(
 
         case DeclarationType.Function: {
             const functionType =
-                detail?.boundObjectOrClass && (isFunction(type) || isOverloadedFunction(type))
+                detail?.boundObjectOrClass && (isFunction(type) || isOverloaded(type))
                     ? evaluator.bindFunctionToClassOrObject(detail.boundObjectOrClass, type)
                     : type;
             if (!functionType) {
@@ -121,8 +122,7 @@ export function getTypeDetail(
 
             if (isProperty(functionType) && detail?.boundObjectOrClass && isClassInstance(detail.boundObjectOrClass)) {
                 const propertyType =
-                    evaluator.getGetterTypeFromProperty(functionType as ClassType, /* inferTypeIfNeeded */ true) ||
-                    UnknownType.create();
+                    evaluator.getGetterTypeFromProperty(functionType as ClassType) || UnknownType.create();
                 return name + ': ' + evaluator.printType(propertyType) + ' (property)';
             }
 
@@ -152,16 +152,20 @@ export function getTypeDetail(
 }
 
 export function getCompletionItemDocumentation(
+    serviceProvider: ServiceProvider,
     typeDetail: string | undefined,
     documentation: string | undefined,
-    markupKind: MarkupKind
+    markupKind: MarkupKind,
+    declaration: Declaration | undefined
 ): MarkupContent | undefined {
     if (markupKind === MarkupKind.Markdown) {
         let markdownString = '```python\n' + typeDetail + '\n```\n';
 
         if (documentation) {
             markdownString += '---\n';
-            markdownString += convertDocStringToMarkdown(documentation);
+            markdownString += serviceProvider
+                .docStringService()
+                .convertDocStringToMarkdown(documentation, isBuiltInModule(declaration?.uri));
         }
 
         markdownString = markdownString.trimEnd();
@@ -175,7 +179,7 @@ export function getCompletionItemDocumentation(
 
         if (documentation) {
             plainTextString += '\n';
-            plainTextString += convertDocStringToPlainText(documentation);
+            plainTextString += serviceProvider.docStringService().convertDocStringToPlainText(documentation);
         }
 
         plainTextString = plainTextString.trimEnd();

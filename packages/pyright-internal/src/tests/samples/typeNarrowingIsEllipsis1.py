@@ -5,8 +5,7 @@
 import types
 from typing import TypeVar
 
-
-_T = TypeVar("_T", str, type(Ellipsis))
+_T = TypeVar("_T", str, types.EllipsisType)
 
 
 def func1(val: int | ellipsis):
@@ -35,3 +34,10 @@ def func4(val: int | ellipsis):
         reveal_type(val, expected_text="int")
     else:
         reveal_type(val, expected_text="EllipsisType")
+
+
+def func5(val: object):
+    if val is ...:
+        reveal_type(val, expected_text="EllipsisType")
+    else:
+        reveal_type(val, expected_text="object")

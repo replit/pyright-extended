@@ -15,16 +15,17 @@ import { ImportResolver } from '../analyzer/importResolver';
 import { Program } from '../analyzer/program';
 import { NameTypeWalker } from '../analyzer/testWalker';
 import { TypeEvaluator } from '../analyzer/typeEvaluatorTypes';
-import { ConfigOptions, ExecutionEnvironment } from '../common/configOptions';
+import { ConfigOptions, ExecutionEnvironment, getStandardDiagnosticRuleSet } from '../common/configOptions';
 import { ConsoleWithLogLevel, NullConsole } from '../common/console';
 import { fail } from '../common/debug';
 import { Diagnostic, DiagnosticCategory } from '../common/diagnostic';
 import { DiagnosticSink } from '../common/diagnosticSink';
 import { FullAccessHost } from '../common/fullAccessHost';
-import { createFromRealFileSystem } from '../common/realFileSystem';
+import { RealTempFile, createFromRealFileSystem } from '../common/realFileSystem';
 import { createServiceProvider } from '../common/serviceProviderExtensions';
 import { Uri } from '../common/uri/uri';
-import { ParseOptions, ParseResults, Parser } from '../parser/parser';
+import { UriEx } from '../common/uri/uriUtils';
+import { ParseFileResults, ParseOptions, Parser, ParserOutput } from '../parser/parser';
 
 // This is a bit gross, but it's necessary to allow the fallback typeshed
 // directory to be located when running within the jest environment. This
@@ -34,18 +35,13 @@ import { ParseOptions, ParseResults, Parser } from '../parser/parser';
 
 export interface FileAnalysisResult {
     fileUri: Uri;
-    parseResults?: ParseResults | undefined;
+    parseResults?: ParseFileResults | undefined;
     errors: Diagnostic[];
     warnings: Diagnostic[];
     infos: Diagnostic[];
     unusedCodes: Diagnostic[];
     unreachableCodes: Diagnostic[];
     deprecateds: Diagnostic[];
-}
-
-export interface FileParseResult {
-    fileContents: string;
-    parseResults: ParseResults;
 }
 
 export function resolveSampleFilePath(fileName: string): string {
@@ -67,7 +63,7 @@ export function parseText(
     textToParse: string,
     diagSink: DiagnosticSink,
     parseOptions: ParseOptions = new ParseOptions()
-): ParseResults {
+): ParseFileResults {
     const parser = new Parser();
     return parser.parseSourceFile(textToParse, parseOptions, diagSink);
 }
@@ -77,23 +73,20 @@ export function parseSampleFile(
     diagSink: DiagnosticSink,
     execEnvironment = new ExecutionEnvironment(
         'python',
-        Uri.file('.'),
+        UriEx.file('.'),
+        getStandardDiagnosticRuleSet(),
         /* defaultPythonVersion */ undefined,
         /* defaultPythonPlatform */ undefined,
         /* defaultExtraPaths */ undefined
     )
-): FileParseResult {
+): ParseFileResults {
     const text = readSampleFile(fileName);
     const parseOptions = new ParseOptions();
     if (fileName.endsWith('pyi')) {
         parseOptions.isStubFile = true;
     }
     parseOptions.pythonVersion = execEnvironment.pythonVersion;
-
-    return {
-        fileContents: text,
-        parseResults: parseText(text, diagSink),
-    };
+    return parseText(text, diagSink);
 }
 
 export function typeAnalyzeSampleFiles(
@@ -104,25 +97,28 @@ export function typeAnalyzeSampleFiles(
     // Always enable "test mode".
     configOptions.internalTestMode = true;
 
-    const fs = createFromRealFileSystem();
-    const serviceProvider = createServiceProvider(fs, console || new NullConsole());
+    const tempFile = new RealTempFile();
+    const fs = createFromRealFileSystem(tempFile);
+    const serviceProvider = createServiceProvider(fs, console || new NullConsole(), tempFile);
     const importResolver = new ImportResolver(serviceProvider, configOptions, new FullAccessHost(serviceProvider));
 
     const program = new Program(importResolver, configOptions, serviceProvider);
-    const fileUris = fileNames.map((name) => Uri.file(resolveSampleFilePath(name)));
+    const fileUris = fileNames.map((name) => UriEx.file(resolveSampleFilePath(name)));
     program.setTrackedFiles(fileUris);
 
     // Set a "pre-check callback" so we can evaluate the types of each NameNode
     // prior to checking the full document. This will exercise the contextual
     // evaluation logic.
-    program.setPreCheckCallback((parseResults: ParseResults, evaluator: TypeEvaluator) => {
+    program.setPreCheckCallback((parserOutput: ParserOutput, evaluator: TypeEvaluator) => {
         const nameTypeWalker = new NameTypeWalker(evaluator);
-        nameTypeWalker.walk(parseResults.parseTree);
+        nameTypeWalker.walk(parserOutput.parseTree);
     });
 
     const results = getAnalysisResults(program, fileUris, configOptions);
 
     program.dispose();
+    serviceProvider.dispose();
+
     return results;
 }
 
@@ -172,22 +168,6 @@ export function getAnalysisResults(
     });
 }
 
-export function printDiagnostics(fileResults: FileAnalysisResult) {
-    if (fileResults.errors.length > 0) {
-        console.error(`Errors in ${fileResults.fileUri}:`);
-        for (const diag of fileResults.errors) {
-            console.error(`  ${diag.message}`);
-        }
-    }
-
-    if (fileResults.warnings.length > 0) {
-        console.error(`Warnings in ${fileResults.fileUri}:`);
-        for (const diag of fileResults.warnings) {
-            console.error(`  ${diag.message}`);
-        }
-    }
-}
-
 export function validateResults(
     results: FileAnalysisResult[],
     errorCount: number,
@@ -198,22 +178,48 @@ export function validateResults(
     deprecated?: number
 ) {
     assert.strictEqual(results.length, 1);
-    assert.strictEqual(results[0].errors.length, errorCount);
-    assert.strictEqual(results[0].warnings.length, warningCount);
+
+    if (results[0].errors.length !== errorCount) {
+        logDiagnostics(results[0].errors);
+        assert.fail(`Expected ${errorCount} errors, got ${results[0].errors.length}`);
+    }
+
+    if (results[0].warnings.length !== warningCount) {
+        logDiagnostics(results[0].warnings);
+        assert.fail(`Expected ${warningCount} warnings, got ${results[0].warnings.length}`);
+    }
 
     if (infoCount !== undefined) {
-        assert.strictEqual(results[0].infos.length, infoCount);
+        if (results[0].infos.length !== infoCount) {
+            logDiagnostics(results[0].infos);
+            assert.fail(`Expected ${infoCount} infos, got ${results[0].infos.length}`);
+        }
     }
 
     if (unusedCode !== undefined) {
-        assert.strictEqual(results[0].unusedCodes.length, unusedCode);
+        if (results[0].unusedCodes.length !== unusedCode) {
+            logDiagnostics(results[0].unusedCodes);
+            assert.fail(`Expected ${unusedCode} unused, got ${results[0].unusedCodes.length}`);
+        }
     }
 
     if (unreachableCode !== undefined) {
-        assert.strictEqual(results[0].unreachableCodes.length, unreachableCode);
+        if (results[0].unreachableCodes.length !== unreachableCode) {
+            logDiagnostics(results[0].unreachableCodes);
+            assert.fail(`Expected ${unreachableCode} unreachable, got ${results[0].unreachableCodes.length}`);
+        }
     }
 
     if (deprecated !== undefined) {
-        assert.strictEqual(results[0].deprecateds.length, deprecated);
+        if (results[0].deprecateds.length !== deprecated) {
+            logDiagnostics(results[0].deprecateds);
+            assert.fail(`Expected ${deprecated} deprecated, got ${results[0].deprecateds.length}`);
+        }
+    }
+}
+
+function logDiagnostics(diags: Diagnostic[]) {
+    for (const diag of diags) {
+        console.error(`   [${diag.range.start.line + 1}:${diag.range.start.character + 1}] ${diag.message}`);
     }
 }

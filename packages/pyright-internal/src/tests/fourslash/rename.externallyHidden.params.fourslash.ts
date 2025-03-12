@@ -1,4 +1,4 @@
-/// <reference path="fourslash.ts" />
+/// <reference path="typings/fourslash.d.ts" />
 
 // @filename: test1.py
 //// def __foo([|param/*marker*/|]: int):
@@ -9,7 +9,7 @@
 // @filename: test2.py
 //// from test1 import __foo
 ////
-//// __foo(param=1)
+//// __foo([|param|]=1)
 
 helper.verifyRename({
     marker: {

@@ -24,6 +24,7 @@ export const enum MetadataOptionNames {
     library = 'library',
     distLibrary = 'distlibrary',
     ipythonMode = 'ipythonmode',
+    chainedTo = 'chainedto',
 }
 
 /** List of allowed file metadata names */
@@ -32,6 +33,7 @@ export const fileMetadataNames = [
     MetadataOptionNames.library,
     MetadataOptionNames.distLibrary,
     MetadataOptionNames.ipythonMode,
+    MetadataOptionNames.chainedTo,
 ];
 
 /** all the necessary information to set the right compiler settings */
@@ -44,6 +46,7 @@ export interface FourSlashFile {
     // The contents of the file (with markers, etc stripped out)
     content: string;
     fileName: string;
+    fileUri: Uri;
     version: number;
     // File-specific options (name/value pairs)
     fileOptions: CompilerSettings;

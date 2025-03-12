@@ -32,13 +32,13 @@ import {
     YieldNode,
 } from '../parser/parseNodes';
 
-export const UnresolvedModuleMarker = Uri.file('*** unresolved module ***', /* isCaseSensitive */ true);
+export const UnresolvedModuleMarker = Uri.constant('*** unresolved module ***');
 
 export const enum DeclarationType {
     Intrinsic,
     Variable,
-    Parameter,
-    TypeParameter,
+    Param,
+    TypeParam,
     TypeAlias,
     Function,
     Class,
@@ -46,7 +46,7 @@ export const enum DeclarationType {
     Alias,
 }
 
-export type IntrinsicType = 'Any' | 'str' | 'str | None' | 'int' | 'Iterable[str]' | 'class' | 'Dict[str, Any]';
+export type IntrinsicType = 'Any' | 'str' | 'str | None' | 'int' | 'Iterable[str]' | 'type[self]' | 'Dict[str, Any]';
 
 export interface DeclarationBase {
     // Category of this symbol (function, variable, etc.).
@@ -72,6 +72,9 @@ export interface DeclarationBase {
     // The declaration is within an except clause of a try
     // statement. We may want to ignore such declarations.
     isInExceptSuite: boolean;
+
+    // This declaration is within an inlined TypedDict definition.
+    isInInlinedTypedDict?: boolean;
 }
 
 export interface IntrinsicDeclaration extends DeclarationBase {
@@ -102,13 +105,9 @@ export interface FunctionDeclaration extends DeclarationBase {
     raiseStatements?: RaiseNode[];
 }
 
-export interface ParameterDeclaration extends DeclarationBase {
-    type: DeclarationType.Parameter;
+export interface ParamDeclaration extends DeclarationBase {
+    type: DeclarationType.Param;
     node: ParameterNode;
-
-    // Documentation specified in the function's docstring (if any) can be
-    // associated with the parameter
-    docString?: string;
 
     // Inferred parameters can be inferred from pieces of an actual NameNode, so this
     // value represents the actual 'name' as the user thinks of it.
@@ -118,8 +117,8 @@ export interface ParameterDeclaration extends DeclarationBase {
     inferredTypeNodes?: ExpressionNode[];
 }
 
-export interface TypeParameterDeclaration extends DeclarationBase {
-    type: DeclarationType.TypeParameter;
+export interface TypeParamDeclaration extends DeclarationBase {
+    type: DeclarationType.TypeParam;
     node: TypeParameterNode;
 }
 
@@ -175,6 +174,9 @@ export interface VariableDeclaration extends DeclarationBase {
 
     // If set, indicates an alternative node to use to determine the type of the variable.
     alternativeTypeNode?: ExpressionNode;
+
+    // Is the declaration an assignment through an explicit nonlocal or global binding?
+    isExplicitBinding?: boolean;
 }
 
 // Alias declarations are used for imports. They are resolved
@@ -243,8 +245,8 @@ export type Declaration =
     | ClassDeclaration
     | SpecialBuiltInClassDeclaration
     | FunctionDeclaration
-    | ParameterDeclaration
-    | TypeParameterDeclaration
+    | ParamDeclaration
+    | TypeParamDeclaration
     | TypeAliasDeclaration
     | VariableDeclaration
     | AliasDeclaration;
@@ -257,12 +259,12 @@ export function isClassDeclaration(decl: Declaration): decl is ClassDeclaration 
     return decl.type === DeclarationType.Class;
 }
 
-export function isParameterDeclaration(decl: Declaration): decl is ParameterDeclaration {
-    return decl.type === DeclarationType.Parameter;
+export function isParamDeclaration(decl: Declaration): decl is ParamDeclaration {
+    return decl.type === DeclarationType.Param;
 }
 
-export function isTypeParameterDeclaration(decl: Declaration): decl is TypeParameterDeclaration {
-    return decl.type === DeclarationType.TypeParameter;
+export function isTypeParamDeclaration(decl: Declaration): decl is TypeParamDeclaration {
+    return decl.type === DeclarationType.TypeParam;
 }
 
 export function isTypeAliasDeclaration(decl: Declaration): decl is TypeAliasDeclaration {

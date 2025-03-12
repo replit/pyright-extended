@@ -25,18 +25,24 @@ import { assertNever } from '../common/debug';
 import { ProgramView, ReferenceUseCase, SymbolUsageProvider } from '../common/extensibility';
 import { ReadOnlyFileSystem } from '../common/fileSystem';
 import { convertOffsetToPosition, convertPositionToOffset } from '../common/positionUtils';
-import { ServiceKeys } from '../common/serviceProviderExtensions';
-import { DocumentRange, Position, TextRange, doesRangeContain } from '../common/textRange';
+import { ServiceKeys } from '../common/serviceKeys';
+import { DocumentRange, Position, Range, TextRange, doesRangeContain } from '../common/textRange';
 import { Uri } from '../common/uri/uri';
 import { NameNode, ParseNode, ParseNodeType } from '../parser/parseNodes';
-import { ParseResults } from '../parser/parser';
+import { ParseFileResults } from '../parser/parser';
 import { CollectionResult, DocumentSymbolCollector } from './documentSymbolCollector';
 import { convertDocumentRangesToLocation } from './navigationUtils';
 
 export type ReferenceCallback = (locations: DocumentRange[]) => void;
 
+export interface LocationWithNode {
+    location: DocumentRange;
+    parentRange?: Range;
+    node: ParseNode;
+}
+
 export class ReferencesResult {
-    private readonly _locations: DocumentRange[] = [];
+    private readonly _results: LocationWithNode[] = [];
 
     readonly nonImportDeclarations: Declaration[];
 
@@ -67,7 +73,7 @@ export class ReferencesResult {
             }
 
             // Extract alias for comparison (symbolNames.some can't know d is for an Alias).
-            const alias = d.node.alias?.value;
+            const alias = d.node.d.alias?.d.value;
 
             // Check alias and what we are renaming is same thing.
             if (!symbolNames.some((s) => s === alias)) {
@@ -83,24 +89,28 @@ export class ReferencesResult {
     }
 
     get locations(): readonly DocumentRange[] {
-        return this._locations;
+        return this._results.map((l) => l.location);
     }
 
-    addLocations(...locs: DocumentRange[]) {
+    get results(): readonly LocationWithNode[] {
+        return this._results;
+    }
+
+    addResults(...locs: LocationWithNode[]) {
         if (locs.length === 0) {
             return;
         }
 
         if (this._reporter) {
-            this._reporter(locs);
+            this._reporter(locs.map((l) => l.location));
         }
 
-        appendArray(this._locations, locs);
+        appendArray(this._results, locs);
     }
 }
 
 export class FindReferencesTreeWalker {
-    private _parseResults: ParseResults | undefined;
+    private _parseResults: ParseFileResults | undefined;
 
     constructor(
         private _program: ProgramView,
@@ -111,14 +121,14 @@ export class FindReferencesTreeWalker {
         private readonly _createDocumentRange: (
             fileUri: Uri,
             result: CollectionResult,
-            parseResults: ParseResults
+            parseResults: ParseFileResults
         ) => DocumentRange = FindReferencesTreeWalker.createDocumentRange
     ) {
         this._parseResults = this._program.getParseResults(this._fileUri);
     }
 
-    findReferences(rootNode = this._parseResults?.parseTree) {
-        const results: DocumentRange[] = [];
+    findReferences(rootNode = this._parseResults?.parserOutput.parseTree) {
+        const results: LocationWithNode[] = [];
         if (!this._parseResults) {
             return results;
         }
@@ -140,14 +150,29 @@ export class FindReferencesTreeWalker {
         for (const result of collector.collect()) {
             // Is it the same symbol?
             if (this._includeDeclaration || result.node !== this._referencesResult.nodeAtOffset) {
-                results.push(this._createDocumentRange(this._fileUri, result, this._parseResults));
+                results.push({
+                    node: result.node,
+                    location: this._createDocumentRange(this._fileUri, result, this._parseResults),
+                    parentRange: result.node.parent
+                        ? {
+                              start: convertOffsetToPosition(
+                                  result.node.parent.start,
+                                  this._parseResults.tokenizerOutput.lines
+                              ),
+                              end: convertOffsetToPosition(
+                                  TextRange.getEnd(result.node.parent),
+                                  this._parseResults.tokenizerOutput.lines
+                              ),
+                          }
+                        : undefined,
+                });
             }
         }
 
         return results;
     }
 
-    static createDocumentRange(fileUri: Uri, result: CollectionResult, parseResults: ParseResults): DocumentRange {
+    static createDocumentRange(fileUri: Uri, result: CollectionResult, parseResults: ParseFileResults): DocumentRange {
         return {
             uri: fileUri,
             range: {
@@ -165,7 +190,7 @@ export class ReferencesProvider {
         private readonly _createDocumentRange?: (
             fileUri: Uri,
             result: CollectionResult,
-            parseResults: ParseResults
+            parseResults: ParseFileResults
         ) => DocumentRange,
         private readonly _convertToLocation?: (fs: ReadOnlyFileSystem, ranges: DocumentRange) => Location | undefined
     ) {
@@ -227,7 +252,7 @@ export class ReferencesProvider {
                 // See if the reference symbol's string is located somewhere within the file.
                 // If not, we can skip additional processing for the file.
                 const fileContents = curSourceFileInfo.sourceFile.getFileContent();
-                if (!fileContents || referencesResult.symbolNames.some((s) => fileContents.search(s) >= 0)) {
+                if (!fileContents || referencesResult.symbolNames.some((s) => fileContents.indexOf(s) >= 0)) {
                     this.addReferencesToResult(
                         curSourceFileInfo.sourceFile.getUri(),
                         includeDeclaration,
@@ -268,10 +293,10 @@ export class ReferencesProvider {
                 );
 
                 this.addReferencesToResult(declFileInfo.sourceFile.getUri(), includeDeclaration, tempResult);
-                for (const loc of tempResult.locations) {
+                for (const result of tempResult.results) {
                     // Include declarations only. And throw away any references
-                    if (loc.uri.equals(decl.uri) && doesRangeContain(decl.range, loc.range)) {
-                        referencesResult.addLocations(loc);
+                    if (result.location.uri.equals(decl.uri) && doesRangeContain(decl.range, result.location.range)) {
+                        referencesResult.addResults(result);
                     }
                 }
             }
@@ -306,7 +331,7 @@ export class ReferencesProvider {
             this._createDocumentRange
         );
 
-        referencesResult.addLocations(...refTreeWalker.findReferences());
+        referencesResult.addResults(...refTreeWalker.findReferences());
     }
 
     static getDeclarationForNode(
@@ -332,7 +357,7 @@ export class ReferencesProvider {
 
         const requiresGlobalSearch = isVisibleOutside(program.evaluator!, fileUri, node, declarations);
         const symbolNames = new Set<string>(declarations.map((d) => getNameFromDeclaration(d)!).filter((n) => !!n));
-        symbolNames.add(node.value);
+        symbolNames.add(node.d.value);
 
         const providers = (program.serviceProvider.tryGet(ServiceKeys.symbolUsageProviderFactory) ?? [])
             .map((f) => f.tryCreateProvider(useCase, declarations, token))
@@ -374,7 +399,7 @@ export class ReferencesProvider {
             return undefined;
         }
 
-        const node = ParseTreeUtils.findNodeByOffset(parseResults.parseTree, offset);
+        const node = ParseTreeUtils.findNodeByOffset(parseResults.parserOutput.parseTree, offset);
         if (node === undefined) {
             return undefined;
         }
@@ -389,7 +414,7 @@ export class ReferencesProvider {
 }
 
 function isVisibleOutside(evaluator: TypeEvaluator, currentUri: Uri, node: NameNode, declarations: Declaration[]) {
-    const result = evaluator.lookUpSymbolRecursive(node, node.value, /* honorCodeFlow */ false);
+    const result = evaluator.lookUpSymbolRecursive(node, node.d.value, /* honorCodeFlow */ false);
     if (result && !isExternallyVisible(result.symbol)) {
         return false;
     }
@@ -405,7 +430,7 @@ function isVisibleOutside(evaluator: TypeEvaluator, currentUri: Uri, node: NameN
             return true;
         }
 
-        const evalScope = ParseTreeUtils.getEvaluationScopeNode(decl.node);
+        const evalScope = ParseTreeUtils.getEvaluationScopeNode(decl.node).node;
 
         // If the declaration is at the module level or a class level, it can be seen
         // outside of the current module, so a global search is needed.
@@ -414,7 +439,7 @@ function isVisibleOutside(evaluator: TypeEvaluator, currentUri: Uri, node: NameN
         }
 
         // If the name node is a member variable, we need to do a global search.
-        if (decl.node?.parent?.nodeType === ParseNodeType.MemberAccess && decl.node === decl.node.parent.memberName) {
+        if (decl.node?.parent?.nodeType === ParseNodeType.MemberAccess && decl.node === decl.node.parent.d.member) {
             return true;
         }
 
@@ -446,12 +471,12 @@ function isVisibleOutside(evaluator: TypeEvaluator, currentUri: Uri, node: NameN
 
                 case DeclarationType.Class:
                 case DeclarationType.Function:
-                    return isVisible && isContainerExternallyVisible(decl.node.name, recursionCount);
+                    return isVisible && isContainerExternallyVisible(decl.node.d.name, recursionCount);
 
-                case DeclarationType.Parameter:
-                    return isVisible && isContainerExternallyVisible(decl.node.name!, recursionCount);
+                case DeclarationType.Param:
+                    return isVisible && isContainerExternallyVisible(decl.node.d.name!, recursionCount);
 
-                case DeclarationType.TypeParameter:
+                case DeclarationType.TypeParam:
                     return false;
 
                 case DeclarationType.Variable:
@@ -473,17 +498,27 @@ function isVisibleOutside(evaluator: TypeEvaluator, currentUri: Uri, node: NameN
     // Return true if the scope that contains the specified node is visible
     // outside of the current module, false if not.
     function isContainerExternallyVisible(node: NameNode, recursionCount: number) {
-        const scopingNode = ParseTreeUtils.getEvaluationScopeNode(node);
+        let scopingNodeInfo = ParseTreeUtils.getEvaluationScopeNode(node);
+        let scopingNode = scopingNodeInfo.node;
+
+        // If this is a type parameter scope, it acts as a proxy for
+        // its outer (parent) scope.
+        while (scopingNodeInfo.useProxyScope && scopingNodeInfo.node.parent) {
+            scopingNodeInfo = ParseTreeUtils.getEvaluationScopeNode(scopingNodeInfo.node.parent);
+            scopingNode = scopingNodeInfo.node;
+        }
+
         switch (scopingNode.nodeType) {
             case ParseNodeType.Class:
             case ParseNodeType.Function: {
-                const name = scopingNode.name;
-                const result = evaluator.lookUpSymbolRecursive(name, name.value, /* honorCodeFlow */ false);
+                const name = scopingNode.d.name;
+                const result = evaluator.lookUpSymbolRecursive(name, name.d.value, /* honorCodeFlow */ false);
                 return result ? isExternallyVisible(result.symbol, recursionCount) : true;
             }
 
             case ParseNodeType.Lambda:
-            case ParseNodeType.ListComprehension:
+            case ParseNodeType.Comprehension:
+            case ParseNodeType.TypeParameterList:
                 // Symbols in this scope can't be visible outside.
                 return false;
 

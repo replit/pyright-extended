@@ -13,10 +13,12 @@ from typing import (
     overload,
 )
 
-
 T_ParentClass = TypeVar("T_ParentClass", bound="ParentClass")
 
 P = ParamSpec("P")
+T = TypeVar("T")
+S = TypeVar("S")
+U = TypeVar("U", bound=int)
 
 
 def decorator(func: Callable[P, None]) -> Callable[P, int]: ...
@@ -136,7 +138,7 @@ class ParentClass:
 
     my_method43: Callable[..., None]
 
-    def my_method44(self, *args: Any, **kwargs: Any) -> None: ...
+    def my_method44(self, *args: object, **kwargs: object) -> None: ...
 
     def my_method45(self, __i: int) -> None: ...
 
@@ -300,7 +302,7 @@ class ChildClass(ParentClass):
     def my_method43(self, a: int, b: str, c: str) -> None: ...
 
     # This should generate an error because kwargs is missing.
-    def my_method44(self, *args) -> None: ...
+    def my_method44(self, *object) -> None: ...
 
     def my_method45(self, i: int, /) -> None: ...
 
@@ -485,3 +487,54 @@ class C(Base4, Base5):
 
 class MyObject(TypedDict):
     values: list[str]
+
+
+class Base6(Generic["T"]):
+    def method1(self, v: int) -> None: ...
+
+    def method2(self, v: T) -> None: ...
+
+    def method3(self, v: T) -> None: ...
+
+    def method4(self, v: S) -> S: ...
+
+    def method5(self, v: S) -> S: ...
+
+
+class Derived6(Base6[int], Generic["T"]):
+    # This should generate an error.
+    def method1(self, v: T): ...
+
+    # This should generate an error.
+    def method2(self, v: T) -> None: ...
+
+    def method3(self, v: int) -> None: ...
+
+    def method4(self, v: T) -> T: ...
+
+    def method5(self, v: S) -> S: ...
+
+
+class Base7(Generic[T]):
+    def method1(self, x: T) -> T:
+        return x
+
+
+class Derived7_1(Base7[T]):
+    # This should generate an error.
+    def method1(self, x: S) -> S:
+        return x
+
+
+class Derived7_2(Base7[int]):
+    def method1(self, x: U) -> U:
+        return x
+
+
+class Base8[T]:
+    def method1(self, x: T) -> T: ...
+
+
+class Derived8[T](Base8[T]):
+    # This should generate an error.
+    def method1[U: str](self, x: U) -> U: ...

@@ -1,4 +1,4 @@
-/// <reference path="fourslash.ts" />
+/// <reference path="typings/fourslash.d.ts" />
 
 // @filename: pyrightconfig.json
 //// {
@@ -16,7 +16,7 @@
 ////     pass
 ////
 //// class MyType2:
-////     def func2():
+////     def func2(self):
 ////         '''func2 docs'''
 ////         pass
 
@@ -61,7 +61,7 @@
 //// func: Any
 //// MyType: Any
 //// class MyType2:
-////     def func2() -> None : ...
+////     def func2(self) -> None : ...
 //// func3: Any
 //// func4: Any
 //// func5: Any

@@ -6,7 +6,7 @@
  * Helper functions relating to collections and arrays.
  */
 
-import { compareValues, Comparison, equateValues, isArray } from './core';
+import { compareValues, Comparison, equateValues, isArray, MapLike } from './core';
 
 export const emptyArray: never[] = [] as never[];
 export type EqualityComparer<T> = (a: T, b: T) => boolean;
@@ -71,6 +71,22 @@ export function appendArray<T>(to: T[], elementsToPush: T[]) {
     for (const elem of elementsToPush) {
         to.push(elem);
     }
+}
+
+/** Works like Array.filter except that it returns a second array with the filtered elements. **/
+export function partition<T, S extends T>(array: readonly T[], cb: (value: T) => boolean): [S[], T[]] {
+    const trueItems: S[] = [];
+    const falseItems: T[] = [];
+
+    for (const item of array) {
+        if (cb(item)) {
+            trueItems.push(item as S);
+        } else {
+            falseItems.push(item);
+        }
+    }
+
+    return [trueItems, falseItems];
 }
 
 /** Works like Array.prototype.find, returning `undefined` if no element satisfying the predicate is found. */
@@ -318,7 +334,7 @@ export function getNestedProperty(object: any, property: string) {
     return value;
 }
 
-export function getOrAdd<K, V>(map: Map<K, V>, key: K, newValueFactory: () => V): V {
+export function getOrAdd<K, V>(map: MapLike<K, V>, key: K, newValueFactory: () => V): V {
     const value = map.get(key);
     if (value !== undefined) {
         return value;

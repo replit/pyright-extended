@@ -17,20 +17,30 @@ import { FullAccessHost } from './common/fullAccessHost';
 import { Host } from './common/host';
 import { ServiceProvider } from './common/serviceProvider';
 import { getRootUri } from './common/uri/uriUtils';
+import { ServiceKeys } from './common/serviceKeys';
 
 export class BackgroundAnalysis extends BackgroundAnalysisBase {
+    private static _workerIndex = 0;
+
     constructor(serviceProvider: ServiceProvider) {
         super(serviceProvider.console());
 
+        const index = ++BackgroundAnalysis._workerIndex;
         const initialData: InitializationData = {
-            rootUri: getRootUri(serviceProvider.fs().isCaseSensitive)?.toString() ?? '',
+            rootUri: getRootUri(serviceProvider)?.toString() ?? '',
+            tempFileName: serviceProvider.get(ServiceKeys.tempFile).tmpdir().getFilePath(),
+            serviceId: index.toString(),
             cancellationFolderName: getCancellationFolderName(),
             runner: undefined,
+            workerIndex: index,
         };
 
         // this will load this same file in BG thread and start listener
         const worker = new Worker(__filename, { workerData: initialData });
         this.setup(worker);
+
+        // Tell the cacheManager we have a worker that needs to share data.
+        serviceProvider.cacheManager()?.addWorker(initialData.workerIndex, worker);
     }
 }
 

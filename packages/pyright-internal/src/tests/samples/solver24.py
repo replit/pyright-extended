@@ -6,6 +6,7 @@ from typing import AnyStr, Generic, Iterable, Iterator, Protocol, TypeAlias, Typ
 
 V = TypeVar("V")
 V_co = TypeVar("V_co", covariant=True)
+T = TypeVar("T")
 U = TypeVar("U")
 
 
@@ -51,3 +52,11 @@ def func3(path: GenericPath[AnyStr]) -> ClassD[AnyStr]:
 
 def func4(val: str):
     func2(func3(val))
+
+
+def func5(a: dict[T, U], b: list[T | U]):
+    pass
+
+
+def func6(a: dict[str, int], b: list[str | int]):
+    func5(a, b)

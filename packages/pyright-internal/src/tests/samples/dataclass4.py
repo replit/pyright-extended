@@ -74,6 +74,9 @@ class DC6:
 
 @dataclass
 class DC7(DC6):
+    # This should generate an error because it is overriding
+    # a field with a default value, but it doesn't have a
+    # default value.
     a: int
 
     # This should generate an error because the default
@@ -88,6 +91,9 @@ class DC8:
 
 @dataclass
 class DC9(DC8):
+    # This should generate an error because it is overriding
+    # a field with a default value, but it doesn't have a
+    # default value.
     a: int
 
     # This should generate an error because the default

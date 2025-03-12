@@ -13,23 +13,23 @@ import * as ParseTreeUtils from '../analyzer/parseTreeUtils';
 import { appendArray } from '../common/collectionUtils';
 import { ExecutionEnvironment } from '../common/configOptions';
 import { isDefined } from '../common/core';
-import { assertNever } from '../common/debug';
+import { assert, assertNever } from '../common/debug';
 import { Uri } from '../common/uri/uri';
-import { ClassNode, ImportFromNode, ModuleNode, ParseNode, ParseNodeType } from '../parser/parseNodes';
+import { ClassNode, ModuleNode, ParseNode, ParseNodeType } from '../parser/parseNodes';
 import {
     AliasDeclaration,
     ClassDeclaration,
     Declaration,
     FunctionDeclaration,
-    ParameterDeclaration,
-    SpecialBuiltInClassDeclaration,
-    VariableDeclaration,
     isAliasDeclaration,
     isClassDeclaration,
     isFunctionDeclaration,
-    isParameterDeclaration,
+    isParamDeclaration,
     isSpecialBuiltInClassDeclaration,
     isVariableDeclaration,
+    ParamDeclaration,
+    SpecialBuiltInClassDeclaration,
+    VariableDeclaration,
 } from './declaration';
 import { ImportResolver } from './importResolver';
 import { SourceFile } from './sourceFile';
@@ -38,7 +38,7 @@ import { isUserCode } from './sourceFileInfoUtils';
 import { buildImportTree } from './sourceMapperUtils';
 import { TypeEvaluator } from './typeEvaluatorTypes';
 import { lookUpClassMember } from './typeUtils';
-import { ClassType, isFunction, isInstantiableClass, isOverloadedFunction } from './types';
+import { ClassType, isFunction, isInstantiableClass, isOverloaded, OverloadedType } from './types';
 
 type ClassOrFunctionOrVariableDeclaration =
     | ClassDeclaration
@@ -70,12 +70,12 @@ export class SourceMapper {
 
         return sourceFiles
             .filter(isDefined)
-            .map((sf) => sf.getParseResults()?.parseTree)
+            .map((sf) => sf.getParserOutput()?.parseTree)
             .filter(isDefined);
     }
 
     getModuleNode(fileUri: Uri): ModuleNode | undefined {
-        return this._boundSourceGetter(fileUri)?.sourceFile.getParseResults()?.parseTree;
+        return this._boundSourceGetter(fileUri)?.sourceFile.getParserOutput()?.parseTree;
     }
 
     findDeclarations(stubDecl: Declaration): Declaration[] {
@@ -85,8 +85,8 @@ export class SourceMapper {
             return this._findFunctionOrTypeAliasDeclarations(stubDecl);
         } else if (isVariableDeclaration(stubDecl)) {
             return this._findVariableDeclarations(stubDecl);
-        } else if (isParameterDeclaration(stubDecl)) {
-            return this._findParameterDeclarations(stubDecl);
+        } else if (isParamDeclaration(stubDecl)) {
+            return this._findParamDeclarations(stubDecl);
         } else if (isSpecialBuiltInClassDeclaration(stubDecl)) {
             return this._findSpecialBuiltInClassDeclarations(stubDecl);
         }
@@ -102,13 +102,13 @@ export class SourceMapper {
 
     findClassDeclarationsByType(originatedPath: Uri, type: ClassType): ClassDeclaration[] {
         const result = this.findDeclarationsByType(originatedPath, type);
-        return result.filter((r) => isClassDeclaration(r)).map((r) => r as ClassDeclaration);
+        return result.filter((r) => isClassDeclaration(r)).map((r) => r);
     }
 
     findFunctionDeclarations(stubDecl: FunctionDeclaration): FunctionDeclaration[] {
         return this._findFunctionOrTypeAliasDeclarations(stubDecl)
             .filter((d) => isFunctionDeclaration(d))
-            .map((d) => d as FunctionDeclaration);
+            .map((d) => d);
     }
 
     isUserCode(uri: Uri): boolean {
@@ -130,8 +130,8 @@ export class SourceMapper {
         stubDecl: SpecialBuiltInClassDeclaration,
         recursiveDeclCache = new Set<string>()
     ) {
-        if (stubDecl.node.valueExpression.nodeType === ParseNodeType.Name) {
-            const className = stubDecl.node.valueExpression.value;
+        if (stubDecl.node.d.valueExpr.nodeType === ParseNodeType.Name) {
+            const className = stubDecl.node.d.valueExpr.d.value;
             const sourceFiles = this._getBoundSourceFilesFromStubFile(stubDecl.uri);
 
             return sourceFiles.flatMap((sourceFile) =>
@@ -155,7 +155,7 @@ export class SourceMapper {
         stubDecl: FunctionDeclaration,
         recursiveDeclCache = new Set<string>()
     ): ClassOrFunctionOrVariableDeclaration[] {
-        const functionName = stubDecl.node.name.value;
+        const functionName = stubDecl.node.d.name.d.value;
         const sourceFiles = this._getBoundSourceFilesFromStubFile(stubDecl.uri);
 
         if (stubDecl.isMethod) {
@@ -183,7 +183,7 @@ export class SourceMapper {
             return [];
         }
 
-        const variableName = stubDecl.node.value;
+        const variableName = stubDecl.node.d.value;
         const sourceFiles = this._getBoundSourceFilesFromStubFile(stubDecl.uri);
         const classNode = ParseTreeUtils.getEnclosingClass(stubDecl.node);
 
@@ -200,10 +200,10 @@ export class SourceMapper {
         }
     }
 
-    private _findParameterDeclarations(stubDecl: ParameterDeclaration): ParameterDeclaration[] {
-        const result: ParameterDeclaration[] = [];
+    private _findParamDeclarations(stubDecl: ParamDeclaration): ParamDeclaration[] {
+        const result: ParamDeclaration[] = [];
 
-        if (!stubDecl.node.name) {
+        if (!stubDecl.node.d.name) {
             return result;
         }
 
@@ -212,23 +212,25 @@ export class SourceMapper {
             return result;
         }
 
-        const functionStubDecls = this._evaluator.getDeclarationsForNameNode(functionNode.name);
+        const functionStubDecls = this._evaluator.getDeclInfoForNameNode(functionNode.d.name)?.decls;
         if (!functionStubDecls) {
             return result;
         }
 
         const recursiveDeclCache = new Set<string>();
         for (const functionStubDecl of functionStubDecls) {
-            for (const functionDecl of this._findFunctionOrTypeAliasDeclarations(
-                functionStubDecl as FunctionDeclaration,
-                recursiveDeclCache
-            )) {
-                appendArray(
-                    result,
-                    this._lookUpSymbolDeclarations(functionDecl.node, stubDecl.node.name.value)
-                        .filter((d) => isParameterDeclaration(d))
-                        .map((d) => d as ParameterDeclaration)
-                );
+            if (isFunctionDeclaration(functionStubDecl)) {
+                for (const functionDecl of this._findFunctionOrTypeAliasDeclarations(
+                    functionStubDecl,
+                    recursiveDeclCache
+                )) {
+                    appendArray(
+                        result,
+                        this._lookUpSymbolDeclarations(functionDecl.node, stubDecl.node.d.name.d.value)
+                            .filter((d) => isParamDeclaration(d))
+                            .map((d) => d)
+                    );
+                }
             }
         }
 
@@ -245,7 +247,7 @@ export class SourceMapper {
         const result: T[] = [];
         const classDecls = this._findClassDeclarationsByName(sourceFile, className, recursiveDeclCache);
 
-        for (const classDecl of classDecls.filter((d) => isClassDeclaration(d)).map((d) => d as ClassDeclaration)) {
+        for (const classDecl of classDecls.filter((d) => isClassDeclaration(d)).map((d) => d)) {
             const classResults = this._evaluator.getTypeOfClass(classDecl.node);
             if (!classResults) {
                 continue;
@@ -350,7 +352,7 @@ export class SourceMapper {
 
         recursiveDeclCache.add(uniqueId);
 
-        const moduleNode = sourceFile.getParseResults()?.parseTree;
+        const moduleNode = sourceFile.getParserOutput()?.parseTree;
         if (!moduleNode) {
             // Don't bother deleting from the cache; we'll never get any info from this
             // file if it has no tree.
@@ -384,7 +386,7 @@ export class SourceMapper {
 
         recursiveDeclCache.add(uniqueId);
 
-        const moduleNode = sourceFile.getParseResults()?.parseTree;
+        const moduleNode = sourceFile.getParserOutput()?.parseTree;
         if (!moduleNode) {
             // Don't bother deleting from the cache; we'll never get any info from this
             // file if it has no tree.
@@ -412,7 +414,7 @@ export class SourceMapper {
         let classDecls: ClassOrFunctionOrVariableDeclaration[] = [];
 
         // fullClassName is period delimited, for example: 'OuterClass.InnerClass'
-        const parentNode = sourceFile.getParseResults()?.parseTree;
+        const parentNode = sourceFile.getParserOutput()?.parseTree;
         if (parentNode) {
             let classNameParts = fullClassName.split('.');
             if (classNameParts.length > 0) {
@@ -518,10 +520,11 @@ export class SourceMapper {
                 return;
             }
 
-            if (isFunction(type) && type.details.declaration) {
-                this._addClassOrFunctionDeclarations(type.details.declaration, result, recursiveDeclCache);
-            } else if (isOverloadedFunction(type)) {
-                for (const overloadDecl of type.overloads.map((o) => o.details.declaration).filter(isDefined)) {
+            if (isFunction(type) && type.shared.declaration) {
+                this._addClassOrFunctionDeclarations(type.shared.declaration, result, recursiveDeclCache);
+            } else if (isOverloaded(type)) {
+                const overloads = OverloadedType.getOverloads(type);
+                for (const overloadDecl of overloads.map((o) => o.shared.declaration).filter(isDefined)) {
                     this._addClassOrFunctionDeclarations(overloadDecl, result, recursiveDeclCache);
                 }
             } else if (isInstantiableClass(type)) {
@@ -565,7 +568,7 @@ export class SourceMapper {
         // from runtime if we provide right synthesized stub path.
         const fakeStubPath = stdLibPath.combinePaths(
             getModuleName()
-                .nameParts.map((n) => n.value)
+                .d.nameParts.map((n) => n.d.value)
                 .join('.') + '.pyi'
         );
 
@@ -582,11 +585,12 @@ export class SourceMapper {
         function getModuleName() {
             switch (decl.node.nodeType) {
                 case ParseNodeType.ImportAs:
-                    return decl.node.module;
+                    return decl.node.d.module;
                 case ParseNodeType.ImportFromAs:
-                    return (decl.node.parent as ImportFromNode).module;
+                    assert(decl.node.parent?.nodeType === ParseNodeType.ImportFrom);
+                    return decl.node.parent.d.module;
                 case ParseNodeType.ImportFrom:
-                    return decl.node.module;
+                    return decl.node.d.module;
                 default:
                     return assertNever(decl.node);
             }
@@ -600,11 +604,16 @@ export class SourceMapper {
         recursiveDeclCache: Set<string>,
         useTypeAlias = false
     ) {
-        const fileUri = useTypeAlias && type.typeAliasInfo ? type.typeAliasInfo.fileUri : type.details.fileUri;
+        const fileUri =
+            useTypeAlias && type.props?.typeAliasInfo ? type.props.typeAliasInfo.shared.fileUri : type.shared.fileUri;
         const sourceFiles = this._getSourceFiles(fileUri, /* stubToShadow */ undefined, originated);
 
-        const fullName = useTypeAlias && type.typeAliasInfo ? type.typeAliasInfo.fullName : type.details.fullName;
-        const moduleName = useTypeAlias && type.typeAliasInfo ? type.typeAliasInfo.moduleName : type.details.moduleName;
+        const fullName =
+            useTypeAlias && type.props?.typeAliasInfo ? type.props.typeAliasInfo.shared.fullName : type.shared.fullName;
+        const moduleName =
+            useTypeAlias && type.props?.typeAliasInfo
+                ? type.props.typeAliasInfo.shared.moduleName
+                : type.shared.moduleName;
         const fullClassName = fullName.substring(moduleName.length + 1 /* +1 for trailing dot */);
 
         for (const sourceFile of sourceFiles) {
@@ -647,7 +656,7 @@ export class SourceMapper {
                     !isAliasDeclaration(decl) ||
                     decl.uri.isEmpty() ||
                     decl.node.nodeType !== ParseNodeType.ImportFrom ||
-                    !decl.node.isWildcardImport
+                    !decl.node.d.isWildcardImport
                 ) {
                     continue;
                 }
@@ -669,7 +678,7 @@ export class SourceMapper {
 
                 const sourceFiles = this._getSourceFiles(decl.uri);
                 for (const sourceFile of sourceFiles) {
-                    const moduleNode = sourceFile.getParseResults()?.parseTree;
+                    const moduleNode = sourceFile.getParserOutput()?.parseTree;
                     if (!moduleNode) {
                         continue;
                     }
@@ -721,7 +730,7 @@ export class SourceMapper {
 
         let current: ClassNode | undefined = node;
         while (current !== undefined) {
-            fullName.push(current.name.value);
+            fullName.push(current.d.name.d.value);
             current = ParseTreeUtils.getEnclosingClass(current);
         }
 

@@ -13,6 +13,7 @@
 import { isWhitespace } from '../analyzer/parseTreeUtils';
 import { IPythonMode } from '../analyzer/sourceFile';
 import { Char } from '../common/charCodes';
+import { cloneStr } from '../common/core';
 import { TextRange } from '../common/textRange';
 import { TextRangeCollection } from '../common/textRangeCollection';
 import {
@@ -304,7 +305,9 @@ export class Tokenizer {
 
         // Insert an implied new line to make parsing easier.
         if (this._tokens.length === 0 || this._tokens[this._tokens.length - 1].type !== TokenType.NewLine) {
-            this._tokens.push(NewLineToken.create(this._cs.position, 0, NewLineType.Implied, this._getComments()));
+            if (this._parenDepth === 0) {
+                this._tokens.push(NewLineToken.create(this._cs.position, 0, NewLineType.Implied, this._getComments()));
+            }
         }
 
         // Insert any implied dedent tokens.
@@ -383,6 +386,16 @@ export class Tokenizer {
         }
 
         return !_softKeywords.has(name);
+    }
+
+    static isPythonIdentifier(value: string) {
+        for (let i = 0; i < value.length; i++) {
+            if (i === 0 ? !isIdentifierStartChar(value.charCodeAt(i)) : !isIdentifierChar(value.charCodeAt(i))) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     static isOperatorAssignment(operatorType?: OperatorType): boolean {
@@ -494,13 +507,25 @@ export class Tokenizer {
                     } else {
                         this._cs.advance(2);
                     }
+
                     this._addLineRange();
-                    return true;
-                } else if (this._cs.nextChar === Char.LineFeed) {
-                    this._cs.advance(2);
-                    this._addLineRange();
+
+                    if (this._tokens.length > 0 && this._tokens[this._tokens.length - 1].type === TokenType.NewLine) {
+                        this._readIndentationAfterNewLine();
+                    }
                     return true;
                 }
+
+                if (this._cs.nextChar === Char.LineFeed) {
+                    this._cs.advance(2);
+                    this._addLineRange();
+
+                    if (this._tokens.length > 0 && this._tokens[this._tokens.length - 1].type === TokenType.NewLine) {
+                        this._readIndentationAfterNewLine();
+                    }
+                    return true;
+                }
+
                 return this._handleInvalid();
             }
 
@@ -864,7 +889,9 @@ export class Tokenizer {
                     KeywordToken.create(start, this._cs.position - start, _keywords.get(value)!, this._getComments())
                 );
             } else {
-                this._tokens.push(IdentifierToken.create(start, this._cs.position - start, value, this._getComments()));
+                this._tokens.push(
+                    IdentifierToken.create(start, this._cs.position - start, cloneStr(value), this._getComments())
+                );
             }
             return true;
         }
@@ -1268,7 +1295,7 @@ export class Tokenizer {
         const length = this._cs.position - start;
         const comment = Comment.create(start, length, this._cs.getText().slice(start, start + length));
 
-        const typeIgnoreRegexMatch = comment.value.match(/((^|#)\s*)type:\s*ignore(\s*\[([\s*\w-,]*)\]|\s|$)/);
+        const typeIgnoreRegexMatch = comment.value.match(/((^|#)\s*)type:\s*ignore(\s*\[([\s\w-,]*)\]|\s|$)/);
         if (typeIgnoreRegexMatch) {
             const commentStart = start + (typeIgnoreRegexMatch.index ?? 0);
             const textRange: TextRange = {
@@ -1287,7 +1314,7 @@ export class Tokenizer {
             }
         }
 
-        const pyrightIgnoreRegexMatch = comment.value.match(/((^|#)\s*)pyright:\s*ignore(\s*\[([\s*\w-,]*)\]|\s|$)/);
+        const pyrightIgnoreRegexMatch = comment.value.match(/((^|#)\s*)pyright:\s*ignore(\s*\[([\s\w-,]*)\]|\s|$)/);
         if (pyrightIgnoreRegexMatch) {
             const commentStart = start + (pyrightIgnoreRegexMatch.index ?? 0);
             const textRange: TextRange = {
@@ -1322,7 +1349,7 @@ export class Tokenizer {
             if (endTrimmed.length > 0) {
                 commentRules.push({
                     range: { start: currentOffset, length: endTrimmed.length },
-                    text: endTrimmed,
+                    text: cloneStr(endTrimmed),
                 });
             }
 
@@ -1593,6 +1620,7 @@ export class Tokenizer {
                     this._cs.getCurrentChar() === Char.N &&
                     this._cs.nextChar === Char.OpenBrace
                 ) {
+                    flags |= StringTokenFlags.NamedUnicodeEscape;
                     isInNamedUnicodeEscape = true;
                 } else {
                     // If this is an f-string, the only escapes that are allowed is for
@@ -1624,13 +1652,15 @@ export class Tokenizer {
                     }
                 }
             } else if (this._cs.currentChar === Char.LineFeed || this._cs.currentChar === Char.CarriageReturn) {
-                if (!isTriplicate && !isFString) {
-                    // Unterminated single-line string
-                    flags |= StringTokenFlags.Unterminated;
-                    return {
-                        escapedValue: getEscapedValue(),
-                        flags,
-                    };
+                if (!isTriplicate) {
+                    if (!isFString || !this._activeFString?.activeReplacementField) {
+                        // Unterminated single-line string
+                        flags |= StringTokenFlags.Unterminated;
+                        return {
+                            escapedValue: getEscapedValue(),
+                            flags,
+                        };
+                    }
                 }
 
                 // Skip over the new line (either one or two characters).

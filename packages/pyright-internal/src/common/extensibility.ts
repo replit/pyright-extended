@@ -16,13 +16,13 @@ import { SourceMapper } from '../analyzer/sourceMapper';
 import { SymbolTable } from '../analyzer/symbol';
 import { TypeEvaluator } from '../analyzer/typeEvaluatorTypes';
 import { Diagnostic } from '../common/diagnostic';
-import { ServerSettings } from '../languageServerBase';
+import { ServerSettings } from '../common/languageServerInterface';
 import { ParseNode } from '../parser/parseNodes';
-import { ParseResults } from '../parser/parser';
+import { ParseFileResults, ParserOutput } from '../parser/parser';
 import { ConfigOptions } from './configOptions';
 import { ConsoleInterface } from './console';
 import { ReadOnlyFileSystem } from './fileSystem';
-import { GroupServiceKey, ServiceKey } from './serviceProvider';
+import { ServiceProvider } from './serviceProvider';
 import { Range } from './textRange';
 import { Uri } from './uri/uri';
 
@@ -39,6 +39,7 @@ export interface SourceFile {
     getClientVersion(): number | undefined;
     getOpenFileContents(): string | undefined;
     getModuleSymbolTable(): SymbolTable | undefined;
+    getDiagnostics(options: ConfigOptions): Diagnostic[] | undefined;
 }
 
 export interface SourceFileInfo {
@@ -64,14 +65,6 @@ export interface SourceFileInfo {
     readonly shadowedBy: readonly SourceFileInfo[];
 }
 
-export interface ServiceProvider {
-    tryGet<T>(key: ServiceKey<T>): T | undefined;
-    tryGet<T>(key: GroupServiceKey<T>): readonly T[] | undefined;
-
-    get<T>(key: ServiceKey<T>): T;
-    get<T>(key: GroupServiceKey<T>): readonly T[];
-}
-
 // Readonly wrapper around a Program. Makes sure it doesn't mutate the program.
 export interface ProgramView {
     readonly id: string;
@@ -85,7 +78,8 @@ export interface ProgramView {
 
     owns(uri: Uri): boolean;
     getSourceFileInfoList(): readonly SourceFileInfo[];
-    getParseResults(fileUri: Uri): ParseResults | undefined;
+    getParserOutput(fileUri: Uri): ParserOutput | undefined;
+    getParseResults(fileUri: Uri): ParseFileResults | undefined;
     getSourceFileInfo(fileUri: Uri): SourceFileInfo | undefined;
     getChainedUri(fileUri: Uri): Uri | undefined;
     getSourceMapper(fileUri: Uri, token: CancellationToken, mapCompiled?: boolean, preferStubs?: boolean): SourceMapper;

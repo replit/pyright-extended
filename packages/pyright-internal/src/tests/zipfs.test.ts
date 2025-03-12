@@ -6,13 +6,14 @@
 
 import * as assert from 'assert';
 import * as path from 'path';
-import { createFromRealFileSystem } from '../common/realFileSystem';
+import { RealTempFile, createFromRealFileSystem } from '../common/realFileSystem';
 import { compareStringsCaseSensitive } from '../common/stringUtils';
 import { Uri } from '../common/uri/uri';
 
 function runTests(p: string): void {
-    const zipRoot = Uri.file(path.resolve(path.dirname(module.filename), p));
-    const fs = createFromRealFileSystem();
+    const tempFile = new RealTempFile();
+    const zipRoot = Uri.file(path.resolve(path.dirname(module.filename), p), tempFile);
+    const fs = createFromRealFileSystem(tempFile);
 
     test('stat root', () => {
         const stats = fs.statSync(zipRoot);
@@ -88,8 +89,10 @@ function runTests(p: string): void {
 
     test('isInZip', () => {
         assert.strictEqual(fs.isInZip(zipRoot.combinePaths('EGG-INFO', 'top_level.txt')), true);
-        assert.strictEqual(fs.isInZip(Uri.file(module.filename)), false);
+        assert.strictEqual(fs.isInZip(Uri.file(module.filename, tempFile)), false);
     });
+
+    tempFile.dispose();
 }
 
 describe('zip', () => runTests('./samples/zipfs/basic.zip'));
@@ -97,8 +100,9 @@ describe('egg', () => runTests('./samples/zipfs/basic.egg'));
 describe('jar', () => runTests('./samples/zipfs/basic.jar'));
 
 function runBadTests(p: string): void {
-    const zipRoot = Uri.file(path.resolve(path.dirname(module.filename), p));
-    const fs = createFromRealFileSystem();
+    const tempFile = new RealTempFile();
+    const zipRoot = Uri.file(path.resolve(path.dirname(module.filename), p), tempFile);
+    const fs = createFromRealFileSystem(tempFile);
 
     test('stat root', () => {
         const stats = fs.statSync(zipRoot);
@@ -109,6 +113,8 @@ function runBadTests(p: string): void {
     test('isInZip', () => {
         assert.strictEqual(fs.isInZip(zipRoot.combinePaths('EGG-INFO', 'top_level.txt')), false);
     });
+
+    tempFile.dispose();
 }
 
 describe('corrupt zip', () => runBadTests('./samples/zipfs/bad.zip'));

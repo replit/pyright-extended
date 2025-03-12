@@ -9,7 +9,7 @@
 
 import { CancellationToken } from 'vscode-languageserver';
 
-import { BackgroundAnalysisBase } from '../backgroundAnalysisBase';
+import { IBackgroundAnalysis } from '../backgroundAnalysisBase';
 import { ConfigOptions, ExecutionEnvironment } from '../common/configOptions';
 import { Diagnostic } from '../common/diagnostic';
 import { FileDiagnostics } from '../common/diagnosticSink';
@@ -32,14 +32,14 @@ export class BackgroundAnalysisProgram {
     private _program: Program;
     private _disposed = false;
     private _onAnalysisCompletion: AnalysisCompleteCallback | undefined;
-    private _preEditAnalysis: BackgroundAnalysisBase | undefined;
+    private _preEditAnalysis: IBackgroundAnalysis | undefined;
 
     constructor(
         protected readonly serviceId: string,
         private readonly _serviceProvider: ServiceProvider,
         private _configOptions: ConfigOptions,
         private _importResolver: ImportResolver,
-        private _backgroundAnalysis?: BackgroundAnalysisBase,
+        private _backgroundAnalysis?: IBackgroundAnalysis,
         private readonly _maxAnalysisTime?: MaxAnalysisTime,
         private readonly _disableChecker?: boolean
     ) {
@@ -51,6 +51,11 @@ export class BackgroundAnalysisProgram {
             this._disableChecker,
             serviceId
         );
+        this._backgroundAnalysis?.setProgramView(this._program);
+    }
+
+    get serviceProvider() {
+        return this._serviceProvider;
     }
 
     get configOptions() {
@@ -150,7 +155,7 @@ export class BackgroundAnalysisProgram {
 
     startAnalysis(token: CancellationToken): boolean {
         if (this._backgroundAnalysis) {
-            this._backgroundAnalysis.startAnalysis(this, token);
+            this._backgroundAnalysis.startAnalysis(token);
             return false;
         }
 
@@ -228,6 +233,7 @@ export class BackgroundAnalysisProgram {
         this._disposed = true;
         this._program.dispose();
         this._backgroundAnalysis?.shutdown();
+        this._backgroundAnalysis?.dispose();
     }
 
     enterEditMode() {
@@ -262,11 +268,12 @@ export class BackgroundAnalysisProgram {
             this._onAnalysisCompletion({
                 diagnostics: fileDiags,
                 filesInProgram: this._program.getFileCount(),
-                filesRequiringAnalysis: this._program.getFilesToAnalyzeCount(),
+                requiringAnalysisCount: this._program.getFilesToAnalyzeCount(),
                 checkingOnlyOpenFiles: this._program.isCheckingOnlyOpenFiles(),
                 fatalErrorOccurred: false,
                 configParseErrorOccurred: false,
                 elapsedTime: 0,
+                reason: 'tracking',
             });
         }
     }
@@ -277,6 +284,6 @@ export type BackgroundAnalysisProgramFactory = (
     serviceProvider: ServiceProvider,
     configOptions: ConfigOptions,
     importResolver: ImportResolver,
-    backgroundAnalysis?: BackgroundAnalysisBase,
+    backgroundAnalysis?: IBackgroundAnalysis,
     maxAnalysisTime?: MaxAnalysisTime
 ) => BackgroundAnalysisProgram;

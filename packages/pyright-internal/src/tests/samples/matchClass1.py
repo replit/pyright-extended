@@ -1,7 +1,16 @@
 # This sample tests type checking for match statements (as
 # described in PEP 634) that contain class patterns.
 
-from typing import Any, Generic, Literal, NamedTuple, TypeVar
+from typing import (
+    Any,
+    Generic,
+    Literal,
+    NamedTuple,
+    Protocol,
+    TypeVar,
+    TypedDict,
+    runtime_checkable,
+)
 from typing_extensions import (  # pyright: ignore[reportMissingModuleSource]
     LiteralString,
 )
@@ -345,6 +354,10 @@ def func11(subj: Any):
             reveal_type(subj, expected_text="Child2[Unknown, Unknown]")
 
 
+class TD1(TypedDict):
+    x: int
+
+
 def func12(subj: int, flt_cls: type[float], union_val: float | int):
     match subj:
         # This should generate an error because int doesn't accept two arguments.
@@ -362,6 +375,10 @@ def func12(subj: int, flt_cls: type[float], union_val: float | int):
 
         # This should generate an error because it is a union.
         case union_val():
+            pass
+
+        # This should generate an error because it is a TypedDict.
+        case TD1():
             pass
 
 
@@ -468,3 +485,35 @@ def func20(x: T6) -> T6:
 
     reveal_type(x, expected_text="float* | int*")
     return x
+
+
+@runtime_checkable
+class Proto1(Protocol):
+    x: int
+
+
+class Proto2(Protocol):
+    x: int
+
+
+def func21(subj: object):
+    match subj:
+        case Proto1():
+            pass
+
+        # This should generate an error because Proto2 isn't runtime checkable.
+        case Proto2():
+            pass
+
+
+class Impl1:
+    x: int
+
+
+def func22(subj: Proto1 | int):
+    match subj:
+        case Proto1():
+            reveal_type(subj, expected_text="Proto1")
+
+        case _:
+            reveal_type(subj, expected_text="int")

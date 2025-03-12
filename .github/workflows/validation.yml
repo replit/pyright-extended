@@ -18,9 +18,9 @@ jobs:
     name: Typecheck
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           echo "dir=$(npm config get cache)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: ${{ steps.npm-cache.outputs.dir }}
           key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
@@ -45,9 +45,9 @@ jobs:
     name: Style
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -56,7 +56,7 @@ jobs:
         shell: bash
         run: |
           echo "dir=$(npm config get cache)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: ${{ steps.npm-cache.outputs.dir }}
           key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
@@ -81,7 +81,7 @@ jobs:
     needs: typecheck
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v4
         with:
@@ -89,7 +89,7 @@ jobs:
           cache: 'pip'
       - run: pip install ruff yapf
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -101,7 +101,7 @@ jobs:
         shell: bash
         run: |
           echo "dir=$(npm config get cache)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         if: runner.os != 'Windows'
         with:
           path: ${{ steps.npm-cache.outputs.dir }}
@@ -117,7 +117,7 @@ jobs:
 
       # Install python so we can create a VENV for tests
       - name: Use Python ${{env.PYTHON_VERSION}}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         id: install_python
         with:
           python-version: ${{env.PYTHON_VERSION}}
@@ -161,27 +161,18 @@ jobs:
     runs-on: ubuntu-latest
     name: Build
     needs: typecheck
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Get npm cache directory
-        id: npm-cache
-        shell: bash
-        run: |
-          echo "dir=$(npm config get cache)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v3
-        with:
-          path: ${{ steps.npm-cache.outputs.dir }}
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - run: npm run install:all
+      - uses: ./.github/actions/choose-npm-install
 
       - run: npm publish --dry-run
         working-directory: packages/pyright

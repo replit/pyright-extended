@@ -19,23 +19,22 @@ import {
 import { throwIfCancellationRequested } from '../common/cancellationUtils';
 import { TextEditAction } from '../common/editAction';
 import { convertOffsetToPosition } from '../common/positionUtils';
-import { Range } from '../common/textRange';
-import { TextRange } from '../common/textRange';
+import { Range, TextRange } from '../common/textRange';
 import { ImportAsNode, ImportFromAsNode, ImportFromNode, ParseNodeType } from '../parser/parseNodes';
-import { ParseResults } from '../parser/parser';
+import { ParseFileResults } from '../parser/parser';
 
 // We choose a line length that matches the default for the popular
 // "black" formatter used in many Python projects.
 const _maxLineLength = 88;
 
 export class ImportSorter {
-    constructor(private _parseResults: ParseResults, private _cancellationToken: CancellationToken) {}
+    constructor(private _parseResults: ParseFileResults, private _cancellationToken: CancellationToken) {}
 
     sort(): TextEditAction[] {
         throwIfCancellationRequested(this._cancellationToken);
 
         const actions: TextEditAction[] = [];
-        const importStatements = getTopLevelImports(this._parseResults.parseTree);
+        const importStatements = getTopLevelImports(this._parseResults.parserOutput.parseTree);
 
         const sortedStatements = importStatements.orderedImports
             .map((s) => s)
@@ -145,27 +144,27 @@ export class ImportSorter {
 
     private _formatImportNode(subnode: ImportAsNode, moduleName: string): string {
         let importText = `import ${moduleName}`;
-        if (subnode.alias) {
-            importText += ` as ${subnode.alias.value}`;
+        if (subnode.d.alias) {
+            importText += ` as ${subnode.d.alias.d.value}`;
         }
 
         return importText;
     }
 
     private _formatImportFromNode(node: ImportFromNode, moduleName: string): string {
-        const symbols = node.imports
+        const symbols = node.d.imports
             .sort((a, b) => this._compareSymbols(a, b))
             .map((symbol) => {
-                let symbolText = symbol.name.value;
-                if (symbol.alias) {
-                    symbolText += ` as ${symbol.alias.value}`;
+                let symbolText = symbol.d.name.d.value;
+                if (symbol.d.alias) {
+                    symbolText += ` as ${symbol.d.alias.d.value}`;
                 }
 
                 return symbolText;
             });
 
         let cumulativeText = `from ${moduleName} import `;
-        if (node.isWildcardImport) {
+        if (node.d.isWildcardImport) {
             return cumulativeText + '*';
         }
 
@@ -191,6 +190,6 @@ export class ImportSorter {
     }
 
     private _compareSymbols(a: ImportFromAsNode, b: ImportFromAsNode) {
-        return a.name.value < b.name.value ? -1 : 1;
+        return a.d.name.d.value < b.d.name.d.value ? -1 : 1;
     }
 }

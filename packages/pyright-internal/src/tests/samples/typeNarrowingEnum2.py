@@ -69,3 +69,10 @@ def func7(a: Union[str, bool]) -> str:
     elif a is True:
         return "True"
     return a
+
+
+def func8(a: object):
+    if a is SomeEnum.VALUE1 or a is SomeEnum.VALUE2:
+        reveal_type(a, expected_text="Literal[SomeEnum.VALUE1, SomeEnum.VALUE2]")
+    else:
+        reveal_type(a, expected_text="object")

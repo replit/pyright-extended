@@ -13,21 +13,25 @@ import { SourceFile } from '../analyzer/sourceFile';
 import { ConfigOptions } from '../common/configOptions';
 import { FullAccessHost } from '../common/fullAccessHost';
 import { combinePaths } from '../common/pathUtils';
-import { createFromRealFileSystem } from '../common/realFileSystem';
+import { RealTempFile, createFromRealFileSystem } from '../common/realFileSystem';
 import { createServiceProvider } from '../common/serviceProviderExtensions';
 import { Uri } from '../common/uri/uri';
 import { parseAndGetTestState } from './harness/fourslash/testState';
 
 test('Empty', () => {
-    const filePath = combinePaths(process.cwd(), 'src/tests/samples/test_file1.py');
-    const fs = createFromRealFileSystem();
-    const serviceProvider = createServiceProvider(fs);
-    const sourceFile = new SourceFile(serviceProvider, Uri.file(filePath), '', false, false, { isEditMode: false });
-    const configOptions = new ConfigOptions(Uri.file(process.cwd()));
+    const filePath = combinePaths(process.cwd(), 'tests/samples/test_file1.py');
+    const tempFile = new RealTempFile();
+    const fs = createFromRealFileSystem(tempFile);
+    const serviceProvider = createServiceProvider(tempFile, fs);
+    const sourceFile = new SourceFile(serviceProvider, Uri.file(filePath, serviceProvider), '', false, false, {
+        isEditMode: false,
+    });
+    const configOptions = new ConfigOptions(Uri.file(process.cwd(), serviceProvider));
     const sp = createServiceProvider(fs);
     const importResolver = new ImportResolver(sp, configOptions, new FullAccessHost(sp));
 
     sourceFile.parse(configOptions, importResolver);
+    serviceProvider.dispose();
 });
 
 test('Empty Open file', () => {

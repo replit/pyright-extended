@@ -8,13 +8,13 @@
 import assert from 'assert';
 import { CancellationToken, CancellationTokenSource } from 'vscode-jsonrpc';
 
-import { buildImportTree as buildImportTreeImpl } from '../analyzer/sourceMapperUtils';
-import { Uri } from '../common/uri/uri';
-import { getNodeAtMarker, parseAndGetTestState } from './harness/fourslash/testState';
-import { ParseNodeType } from '../parser/parseNodes';
-import { TypeCategory } from '../analyzer/types';
 import { VariableDeclaration, isVariableDeclaration } from '../analyzer/declaration';
+import { buildImportTree as buildImportTreeImpl } from '../analyzer/sourceMapperUtils';
+import { TypeCategory } from '../analyzer/types';
 import { TextRange } from '../common/textRange';
+import { UriEx } from '../common/uri/uriUtils';
+import { ParseNodeType } from '../parser/parseNodes';
+import { getNodeAtMarker, parseAndGetTestState } from './harness/fourslash/testState';
 
 function buildImportTree(
     sourceFile: string,
@@ -23,11 +23,11 @@ function buildImportTree(
     token: CancellationToken
 ): string[] {
     return buildImportTreeImpl(
-        Uri.file(sourceFile),
-        Uri.file(targetFile),
+        UriEx.file(sourceFile),
+        UriEx.file(targetFile),
         (from) => {
             const resolved = importResolver(from.getFilePath().slice(1));
-            return resolved.map((f) => Uri.file(f));
+            return resolved.map((f) => UriEx.file(f));
         },
         token
     ).map((u) => u.getFilePath().slice(1));
@@ -216,12 +216,12 @@ function assertTypeAlias(code: string) {
     const type = state.program.evaluator!.getType(node);
     assert(type?.category === TypeCategory.Class);
 
-    assert.strictEqual(type.details.name, 'Mapping');
-    assert.strictEqual(type.typeAliasInfo?.name, 'M');
-    assert.strictEqual(type.typeAliasInfo.moduleName, 'test');
+    assert.strictEqual(type.shared.name, 'Mapping');
+    assert.strictEqual(type.props?.typeAliasInfo?.shared.name, 'M');
+    assert.strictEqual(type.props?.typeAliasInfo.shared.moduleName, 'test');
 
     const marker = state.getMarkerByName('marker');
-    const markerUri = Uri.file(marker.fileName, state.fs.isCaseSensitive);
+    const markerUri = marker.fileUri;
     const mapper = state.program.getSourceMapper(
         markerUri,
         CancellationToken.None,
@@ -232,7 +232,7 @@ function assertTypeAlias(code: string) {
     const range = state.getRangeByMarkerName('decl')!;
     const decls = mapper.findDeclarationsByType(markerUri, type, /* userTypeAlias */ true);
 
-    const decl = decls.find((d) => isVariableDeclaration(d) && d.typeAliasName && d.typeAliasName.value === 'M') as
+    const decl = decls.find((d) => isVariableDeclaration(d) && d.typeAliasName && d.typeAliasName.d.value === 'M') as
         | VariableDeclaration
         | undefined;
     assert(decl);

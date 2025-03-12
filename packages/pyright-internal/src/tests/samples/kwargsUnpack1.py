@@ -121,3 +121,22 @@ def func4(v1: int, /, **kwargs: Unpack[TD2]) -> None: ...
 # This should generate an error because parameter v1 overlaps
 # with the TypedDict.
 def func5(v1: int, **kwargs: Unpack[TD2]) -> None: ...
+
+
+class TD3(TypedDict):
+    a: int
+
+
+def func6(a: int, /, **kwargs: Unpack[TD3]):
+    pass
+
+
+func6(1, a=2)
+
+
+def func7(*, v1: int, v3: str, v2: str = "") -> None: ...
+
+
+# This should generate an error because func7 doesn't
+# accept additional keyword arguments.
+v7: TDProtocol6 = func7

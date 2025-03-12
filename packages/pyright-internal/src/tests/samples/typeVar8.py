@@ -66,8 +66,8 @@ def func3(t: t.TypeVar, ts: t.TypeVarTuple = ..., p: t.ParamSpec = ...) -> None:
 
 func3(T1, Ts1, P1)
 
-# This should generate an error because the runtime object typing.TypeVar
-# is not the same as typing_extensions.TypeVar.
+# This should generate an error for Python 3.12 and older because the runtime
+# object typing.TypeVar is not the same as typing_extensions.TypeVar.
 func3(T2)
 
 
@@ -77,6 +77,6 @@ def func4(t: te.TypeVar, ts: te.TypeVarTuple = ..., p: te.ParamSpec = ...) -> No
 func4(T2, Ts2, P2)
 
 
-# This should generate an error because the runtime object typing.TypeVar
-# is not the same as typing_extensions.TypeVar.
+# This should generate an error for Python 3.12 and older because the runtime
+# object typing.TypeVar is not the same as typing_extensions.TypeVar.
 func4(T1)

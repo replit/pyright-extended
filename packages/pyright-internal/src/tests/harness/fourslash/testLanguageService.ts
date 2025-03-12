@@ -15,7 +15,7 @@ import {
 import { ImportResolver, ImportResolverFactory } from '../../../analyzer/importResolver';
 import { MaxAnalysisTime } from '../../../analyzer/program';
 import { AnalyzerService, AnalyzerServiceOptions } from '../../../analyzer/service';
-import { BackgroundAnalysisBase } from '../../../backgroundAnalysisBase';
+import { IBackgroundAnalysis } from '../../../backgroundAnalysisBase';
 import { CommandController } from '../../../commands/commandController';
 import { ConfigOptions } from '../../../common/configOptions';
 import { ConsoleInterface } from '../../../common/console';
@@ -24,14 +24,14 @@ import { FileSystem } from '../../../common/fileSystem';
 import { ServiceProvider } from '../../../common/serviceProvider';
 import { Range } from '../../../common/textRange';
 import { Uri } from '../../../common/uri/uri';
-import { LanguageServerInterface, MessageAction, ServerSettings, WindowInterface } from '../../../languageServerBase';
-import { CodeActionProvider } from '../../../languageService/codeActionProvider';
 import {
-    WellKnownWorkspaceKinds,
-    Workspace,
-    WorkspacePythonPathKind,
-    createInitStatus,
-} from '../../../workspaceFactory';
+    LanguageServerInterface,
+    MessageAction,
+    ServerSettings,
+    WindowInterface,
+} from '../../../common/languageServerInterface';
+import { CodeActionProvider } from '../../../languageService/codeActionProvider';
+import { WellKnownWorkspaceKinds, Workspace, createInitStatus } from '../../../workspaceFactory';
 import { TestAccessHost } from '../testAccessHost';
 import { HostSpecificFeatures } from './testState';
 
@@ -42,7 +42,7 @@ export class TestFeatures implements HostSpecificFeatures {
         serviceProvider: ServiceProvider,
         configOptions: ConfigOptions,
         importResolver: ImportResolver,
-        backgroundAnalysis?: BackgroundAnalysisBase,
+        backgroundAnalysis?: IBackgroundAnalysis,
         maxAnalysisTime?: MaxAnalysisTime
     ) =>
         new BackgroundAnalysisProgram(
@@ -54,10 +54,6 @@ export class TestFeatures implements HostSpecificFeatures {
             maxAnalysisTime,
             /* disableChecker */ undefined
         );
-
-    runIndexer(workspace: Workspace, noStdLib: boolean, options?: string): void {
-        /* empty */
-    }
 
     getCodeActionsForPosition(
         workspace: Workspace,
@@ -74,9 +70,9 @@ export class TestFeatures implements HostSpecificFeatures {
 }
 
 export class TestLanguageService implements LanguageServerInterface {
-    readonly rootUri = Uri.file('/');
     readonly window = new TestWindow();
     readonly supportAdvancedEdits = true;
+    readonly serviceProvider: ServiceProvider;
 
     private readonly _workspace: Workspace;
     private readonly _defaultWorkspace: Workspace;
@@ -88,11 +84,11 @@ export class TestLanguageService implements LanguageServerInterface {
         options?: AnalyzerServiceOptions
     ) {
         this._workspace = workspace;
+        this.serviceProvider = this._workspace.service.serviceProvider;
+
         this._defaultWorkspace = {
             workspaceName: '',
-            rootUri: Uri.empty(),
-            pythonPath: undefined,
-            pythonPathKind: WorkspacePythonPathKind.Mutable,
+            rootUri: undefined,
             kinds: [WellKnownWorkspaceKinds.Test],
             service: new AnalyzerService(
                 'test service',
@@ -111,7 +107,6 @@ export class TestLanguageService implements LanguageServerInterface {
             disableWorkspaceSymbol: false,
             isInitialized: createInitStatus(),
             searchPathsToWatch: [],
-            pythonEnvironmentName: undefined,
         };
     }
 
@@ -143,7 +138,7 @@ export class TestLanguageService implements LanguageServerInterface {
         return Promise.resolve(settings);
     }
 
-    createBackgroundAnalysis(serviceId: string): BackgroundAnalysisBase | undefined {
+    createBackgroundAnalysis(serviceId: string): IBackgroundAnalysis | undefined {
         // worker thread doesn't work in Jest
         // by returning undefined, analysis will run inline
         return undefined;

@@ -102,8 +102,11 @@ const hasOwnProperty = Object.prototype.hasOwnProperty;
  * The `in` and `for-in` operators can *not* be safely used,
  * since `Object.prototype` may be modified by outside code.
  */
-export interface MapLike<T> {
-    [index: string]: T;
+export interface MapLike<K, V> {
+    readonly [Symbol.toStringTag]: string;
+    get(key: K): V | undefined;
+    has(key: K): boolean;
+    set(key: K, value: V): this;
 }
 
 /**
@@ -112,7 +115,7 @@ export interface MapLike<T> {
  * @param map A map-like.
  * @param key A property key.
  */
-export function hasProperty(map: MapLike<any>, key: string): boolean {
+export function hasProperty(map: { [index: string]: any }, key: string): boolean {
     return hasOwnProperty.call(map, key);
 }
 
@@ -182,4 +185,20 @@ export function containsOnlyWhitespace(text: string, span?: TextRange) {
     }
 
     return /^\s*$/.test(text);
+}
+
+export function cloneStr(str: string): string {
+    // Ensure we get a copy of the string that is not shared with the original string.
+    // Node.js has an internal optimization where it uses sliced strings for `substring`, `slice`, `substr`
+    // when it deems appropriate. Most of the time, this optimization is beneficial, but in this case, we want
+    // to ensure we get a copy of the string to prevent the original string from being retained in memory.
+    // For example, the import resolution cache in importResolver might hold onto the full original file content
+    // because seemingly innocent the import name  (e.g., `foo` in `import foo`) is in the cache.
+    return Buffer.from(str, 'utf8').toString('utf8');
+}
+
+export namespace Disposable {
+    export function is(value: any): value is { dispose(): void } {
+        return value && typeof value.dispose === 'function';
+    }
 }

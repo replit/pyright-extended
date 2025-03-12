@@ -35,14 +35,14 @@ jobs:
       contents: read
     strategy:
       matrix:
-        shard-index: [0, 1]
+        shard-index: [0, 1, 2, 3, 4, 5, 6, 7]
       fail-fast: false
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           path: pyright_to_test
           fetch-depth: 0
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
       - name: Install dependencies
@@ -69,23 +69,23 @@ jobs:
             --repo pyright_to_test \
             --type-checker pyright \
             --new $GITHUB_SHA --old base_commit \
-            --num-shards 2 --shard-index ${{ matrix.shard-index }} \
+            --num-shards 8 --shard-index ${{ matrix.shard-index }} \
             --debug \
             --output concise \
             | tee diff_${{ matrix.shard-index }}.txt
           ) || [ $? -eq 1 ]
       - name: Upload mypy_primer diff
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: mypy_primer_diffs
+          name: mypy_primer_diffs_${{ matrix.shard-index }}
           path: diff_${{ matrix.shard-index }}.txt
-      - if: ${{ matrix.shard-index }} == 0
+      - if: ${{ matrix.shard-index == 0 }}
         name: Save PR number
         run: |
           echo ${{ github.event.pull_request.number }} | tee pr_number.txt
-      - if: ${{ matrix.shard-index }} == 0
+      - if: ${{ matrix.shard-index == 0 }}
         name: Upload PR number
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: mypy_primer_diffs
+          name: mypy_primer_diffs_pr_number
           path: pr_number.txt

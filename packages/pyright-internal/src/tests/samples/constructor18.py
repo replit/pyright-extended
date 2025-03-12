@@ -24,7 +24,7 @@ class ClassB(Generic[_T1]):
         return super().__new__(cls, *args, **kwargs)
 
     @overload
-    def __init__(self: "ClassB[_T1]", arg: _T1) -> None:
+    def __init__(self, arg: _T1) -> None:
         ...
 
     @overload

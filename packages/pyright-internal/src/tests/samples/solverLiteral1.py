@@ -3,7 +3,6 @@
 
 from typing import Callable, Generic, Literal, TypeVar
 
-
 FileChanges = dict[str, Literal["created", "edited", "removed"]]
 
 changes: FileChanges = {}
@@ -57,3 +56,13 @@ def func6(s: _S, t: _T) -> ClassB[_S, _T]:
 
 def func7(t: _T, f: Callable[[ClassB[_T, Literal[2]]], None]) -> None:
     return f(func6(t, 2))
+
+
+def func8(a: _T, b: Callable[[list[_T]], None]) -> _T:
+    return a
+
+
+def func9(v: Callable[[list[int]], None]):
+    func8(b=v, a=1)
+
+    func8(a=1, b=v)

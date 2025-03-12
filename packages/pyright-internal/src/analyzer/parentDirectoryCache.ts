@@ -30,8 +30,7 @@ export class ParentDirectoryCache {
         const result = this._cachedResults.get(importName)?.get(path.key);
         if (result) {
             // We already checked for the importName at the path.
-            // Return the result if succeeded otherwise, return regular import result given.
-            return result ?? importResult;
+            return result;
         }
 
         const checked = this._importChecked.get(importName)?.get(path.key);
@@ -57,7 +56,7 @@ export class ParentDirectoryCache {
             this._libPathCache ??
             this._importRootGetter()
                 .map((r) => fs.realCasePath(r))
-                .filter((r) => r !== root)
+                .filter((r) => !r.equals(root))
                 .filter((r) => r.startsWith(root));
 
         if (this._libPathCache.some((p) => sourceFileUri.startsWith(p))) {

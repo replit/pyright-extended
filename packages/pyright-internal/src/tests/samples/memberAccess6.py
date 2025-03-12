@@ -14,7 +14,7 @@ class ParentA:
 
 
 class Column(Generic[_T]):
-    def __init__(self: "Column[_T]", type: type[_T]) -> None:
+    def __init__(self, type: type[_T]) -> None:
         ...
 
     @overload

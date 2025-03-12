@@ -11,6 +11,7 @@ import { CancellationToken, Disposable, LSPErrorCodes, ResponseError } from 'vsc
 
 import { isDebugMode } from './core';
 import { Uri } from './uri/uri';
+import { UriEx } from './uri/uriUtils';
 
 export interface CancellationProvider {
     createCancellationTokenSource(): AbstractCancellationTokenSource;
@@ -24,6 +25,20 @@ export function getCancellationFolderName() {
 
 export function setCancellationFolderName(folderName?: string) {
     cancellationFolderName = folderName;
+}
+
+export function invalidateTypeCacheIfCanceled<T>(cb: () => T): T {
+    try {
+        return cb();
+    } catch (e: any) {
+        if (OperationCanceledException.is(e)) {
+            // If the work was canceled before the function type was updated, the
+            // function type in the type cache is in an invalid, partially-constructed state.
+            e.isTypeCacheInvalid = true;
+        }
+
+        throw e;
+    }
 }
 
 export class OperationCanceledException extends ResponseError<void> {
@@ -63,8 +78,28 @@ export function onCancellationRequested(token: CancellationToken, func: (i: any)
 
 export function CancelAfter(provider: CancellationProvider, ...tokens: CancellationToken[]) {
     const source = provider.createCancellationTokenSource();
-    const disposables: Disposable[] = [];
+    setupCombinedTokensFor(source, ...tokens);
+    return source;
+}
 
+export function createCombinedToken(...tokens: CancellationToken[]): CancellationToken {
+    const source = new CancellationTokenSource();
+    setupCombinedTokensFor(source, ...tokens);
+    return source.token;
+}
+
+export function setupCombinedTokensFor(source: AbstractCancellationTokenSource, ...tokens: CancellationToken[]) {
+    // If any token is already cancelled, cancel immediately.
+    for (const token of tokens) {
+        if (!token.isCancellationRequested) {
+            continue;
+        }
+
+        source.cancel();
+        return;
+    }
+
+    const disposables: Disposable[] = [];
     for (const token of tokens) {
         disposables.push(
             onCancellationRequested(token, () => {
@@ -78,8 +113,6 @@ export function CancelAfter(provider: CancellationProvider, ...tokens: Cancellat
             disposables.forEach((d) => d.dispose());
         })
     );
-
-    return source;
 }
 
 export class DefaultCancellationProvider implements CancellationProvider {
@@ -98,7 +131,7 @@ export class FileBasedToken implements CancellationToken {
     private _emitter: Emitter<any> | undefined;
 
     constructor(cancellationId: string, private _fs: { statSync(fileUri: Uri): void }) {
-        this.cancellationFilePath = Uri.file(cancellationId);
+        this.cancellationFilePath = UriEx.file(cancellationId);
     }
 
     get id(): string {

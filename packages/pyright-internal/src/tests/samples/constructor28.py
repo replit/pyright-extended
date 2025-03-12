@@ -39,8 +39,8 @@ def func2(arg1: ParentB[T], arg2: ParentB[T]) -> T:
     ...
 
 
-x1 = func2(ChildB(""), ChildB(1.2))
-reveal_type(x1, expected_text="str | float")
+# This should generate an error.
+func2(ChildB(""), ChildB(1.2))
 
 
 class ClassC(Generic[S]):

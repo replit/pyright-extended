@@ -35,7 +35,7 @@ def g(a: Optional[Callable[[int], int]]):
         a(3)
 
 
-_T1 = TypeVar("_T1")
+_T1 = TypeVar("_T1", bound=int)
 
 
 def test1(arg: Union[_T1, Callable[[], _T1]]) -> _T1:
@@ -76,3 +76,10 @@ def test3(v: _T2) -> Union[_T2, int, str]:
     else:
         reveal_type(v, expected_text="int* | str*")
         return v
+
+
+def test4(v: type[int] | object):
+    if callable(v):
+        reveal_type(v, expected_text="type[int] | ((...) -> object)")
+    else:
+        reveal_type(v, expected_text="object")

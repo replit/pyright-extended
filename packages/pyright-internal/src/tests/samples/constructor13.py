@@ -11,5 +11,8 @@ class Foo(Generic[T]):
         val = self.method1()
         reveal_type(val(), expected_text="T@Foo")
 
+        # This should generate an error.
+        val(1)
+
     def method1(self) -> type[T]:
         ...

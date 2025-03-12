@@ -12,10 +12,12 @@
 import type * as fs from 'fs';
 import { FileWatcher, FileWatcherEventHandler } from './fileWatcher';
 import { Uri } from './uri/uri';
+import { Disposable } from 'vscode-jsonrpc';
 
 export interface Stats {
     size: number;
     mtimeMs: number;
+    ctimeMs: number;
 
     isFile(): boolean;
     isDirectory(): boolean;
@@ -34,7 +36,6 @@ export interface MkDirOptions {
 }
 
 export interface ReadOnlyFileSystem {
-    readonly isCaseSensitive: boolean;
     existsSync(uri: Uri): boolean;
     chdir(uri: Uri): void;
     readdirEntriesSync(uri: Uri): fs.Dirent[];
@@ -75,6 +76,8 @@ export interface FileSystem extends ReadOnlyFileSystem {
     createReadStream(uri: Uri): fs.ReadStream;
     createWriteStream(uri: Uri): fs.WriteStream;
     copyFileSync(uri: Uri, dst: Uri): void;
+
+    mapDirectory(mappedUri: Uri, originalUri: Uri, filter?: (originalUri: Uri, fs: FileSystem) => boolean): Disposable;
 }
 
 export interface TmpfileOptions {
@@ -86,7 +89,6 @@ export interface TempFile {
     // The directory returned by tmpdir must exist and be the same each time tmpdir is called.
     tmpdir(): Uri;
     tmpfile(options?: TmpfileOptions): Uri;
-    dispose(): void;
 }
 
 export namespace FileSystem {
@@ -97,12 +99,25 @@ export namespace FileSystem {
 
 export namespace TempFile {
     export function is(value: any): value is TempFile {
-        return value.tmpdir && value.tmpfile && value.dispose;
+        return value.tmpdir && value.tmpfile;
     }
 }
 
 export class VirtualDirent implements fs.Dirent {
-    constructor(public name: string, private _file: boolean) {}
+    parentPath: string;
+
+    constructor(public name: string, private _file: boolean, parentPath: string) {
+        this.parentPath = parentPath;
+    }
+
+    /**
+     * Alias for `dirent.parentPath`.
+     * @since v20.1.0
+     * @deprecated Since v20.12.0
+     */
+    get path(): string {
+        return this.parentPath;
+    }
 
     isFile(): boolean {
         return this._file;

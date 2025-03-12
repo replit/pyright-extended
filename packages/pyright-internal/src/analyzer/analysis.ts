@@ -24,11 +24,17 @@ export interface AnalysisResults {
     diagnostics: FileDiagnostics[];
     filesInProgram: number;
     checkingOnlyOpenFiles: boolean;
-    filesRequiringAnalysis: number;
+    requiringAnalysisCount: RequiringAnalysisCount;
     fatalErrorOccurred: boolean;
     configParseErrorOccurred: boolean;
     elapsedTime: number;
     error?: Error | undefined;
+    reason: 'analysis' | 'tracking';
+}
+
+export interface RequiringAnalysisCount {
+    files: number;
+    cells: number;
 }
 
 export type AnalysisCompleteCallback = (results: AnalysisResults) => void;
@@ -51,7 +57,7 @@ export function analyzeProgram(
         const duration = new Duration();
         moreToAnalyze = program.analyze(maxTime, token);
 
-        const filesLeftToAnalyze = program.getFilesToAnalyzeCount();
+        const requiringAnalysisCount = program.getFilesToAnalyzeCount();
 
         // If we're using command-line mode, the maxTime will be undefined, and we'll
         // want to report all diagnostics rather than just the ones that have changed.
@@ -66,11 +72,12 @@ export function analyzeProgram(
             callback({
                 diagnostics,
                 filesInProgram: program.getFileCount(),
-                filesRequiringAnalysis: filesLeftToAnalyze,
+                requiringAnalysisCount: requiringAnalysisCount,
                 checkingOnlyOpenFiles: program.isCheckingOnlyOpenFiles(),
                 fatalErrorOccurred: false,
                 configParseErrorOccurred: false,
                 elapsedTime,
+                reason: 'analysis',
             });
         }
     } catch (e: any) {
@@ -84,12 +91,13 @@ export function analyzeProgram(
         callback({
             diagnostics: [],
             filesInProgram: 0,
-            filesRequiringAnalysis: 0,
+            requiringAnalysisCount: { files: 0, cells: 0 },
             checkingOnlyOpenFiles: true,
             fatalErrorOccurred: true,
             configParseErrorOccurred: false,
             elapsedTime: 0,
             error: debug.getSerializableError(e),
+            reason: 'analysis',
         });
     }
 

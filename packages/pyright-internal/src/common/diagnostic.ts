@@ -13,8 +13,8 @@ import { DiagnosticLevel } from './configOptions';
 import { Range, TextRange } from './textRange';
 import { Uri } from './uri/uri';
 
-const defaultMaxDepth = 5;
-const defaultMaxLineCount = 8;
+export const defaultMaxDiagnosticDepth = 5;
+export const defaultMaxDiagnosticLineCount = 8;
 const maxRecursionCount = 64;
 
 // Corresponds to the CommentTaskPriority enum at https://devdiv.visualstudio.com/DefaultCollection/DevDiv/_git/VS?path=src/env/shell/PackageFramework/Framework/CommentTaskPriority.cs
@@ -86,6 +86,26 @@ export interface DiagnosticRelatedInfo {
     priority: TaskListPriority;
 }
 
+export namespace DiagnosticRelatedInfo {
+    export function toJsonObj(info: DiagnosticRelatedInfo): any {
+        return {
+            message: info.message,
+            uri: info.uri.toJsonObj(),
+            range: info.range,
+            priority: info.priority,
+        };
+    }
+
+    export function fromJsonObj(obj: any): DiagnosticRelatedInfo {
+        return {
+            message: obj.message,
+            uri: Uri.fromJsonObj(obj.uri),
+            range: obj.range,
+            priority: obj.priority,
+        };
+    }
+}
+
 // Represents a single error or warning.
 export class Diagnostic {
     private _actions: DiagnosticAction[] | undefined;
@@ -98,6 +118,26 @@ export class Diagnostic {
         readonly range: Range,
         readonly priority: TaskListPriority = TaskListPriority.Normal
     ) {}
+
+    toJsonObj() {
+        return {
+            category: this.category,
+            message: this.message,
+            range: this.range,
+            priority: this.priority,
+            actions: this._actions,
+            rule: this._rule,
+            relatedInfo: this._relatedInfo.map((info) => DiagnosticRelatedInfo.toJsonObj(info)),
+        };
+    }
+
+    static fromJsonObj(obj: any) {
+        const diag = new Diagnostic(obj.category, obj.message, obj.range, obj.priority);
+        diag._actions = obj.actions;
+        diag._rule = obj.rule;
+        diag._relatedInfo = obj.relatedInfo.map((info: any) => DiagnosticRelatedInfo.fromJsonObj(info));
+        return diag;
+    }
 
     addAction(action: DiagnosticAction) {
         if (this._actions === undefined) {
@@ -151,6 +191,11 @@ export class DiagnosticAddendum {
     private _messages: string[] = [];
     private _childAddenda: DiagnosticAddendum[] = [];
 
+    // The nest level is accurate only for the common case where all
+    // addendum are created using createAddendum. This is an upper bound.
+    // The actual nest level may be smaller.
+    private _nestLevel: number | undefined;
+
     // Addenda normally don't have their own ranges, but there are cases
     // where we want to track ranges that can influence the range of the
     // diagnostic.
@@ -160,6 +205,12 @@ export class DiagnosticAddendum {
         this._messages.push(message);
     }
 
+    addMessageMultiline(message: string) {
+        message.split('\n').forEach((line) => {
+            this._messages.push(line);
+        });
+    }
+
     addTextRange(range: TextRange) {
         this._range = range;
     }
@@ -167,11 +218,12 @@ export class DiagnosticAddendum {
     // Create a new (nested) addendum to which messages can be added.
     createAddendum() {
         const newAddendum = new DiagnosticAddendum();
+        newAddendum._nestLevel = (this._nestLevel ?? 0) + 1;
         this.addAddendum(newAddendum);
         return newAddendum;
     }
 
-    getString(maxDepth = defaultMaxDepth, maxLineCount = defaultMaxLineCount): string {
+    getString(maxDepth = defaultMaxDiagnosticDepth, maxLineCount = defaultMaxDiagnosticLineCount): string {
         let lines = this._getLinesRecursive(maxDepth, maxLineCount);
 
         if (lines.length > maxLineCount) {
@@ -201,6 +253,10 @@ export class DiagnosticAddendum {
 
     getMessages() {
         return this._messages;
+    }
+
+    getNestLevel() {
+        return this._nestLevel ?? 0;
     }
 
     // Returns undefined if no range is associated with this addendum

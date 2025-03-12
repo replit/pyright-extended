@@ -1,7 +1,7 @@
 # This sample tests the case where `Callable()` is used as a class pattern.
 
 from collections.abc import Callable
-from typing import TypeVar
+from typing import Any, Protocol, TypeVar
 
 T = TypeVar("T")
 
@@ -24,3 +24,42 @@ def func3(obj: type[int] | Callable[..., str]) -> int | str | None:
         case Callable():
             reveal_type(obj, expected_text="type[int] | ((...) -> str)")
             return obj()
+
+
+def func4(obj):
+    match obj:
+        case Callable():
+            reveal_type(obj, expected_text="(...) -> Unknown")
+            return obj()
+
+
+def func5(obj: Any):
+    match obj:
+        case Callable():
+            reveal_type(obj, expected_text="(...) -> Any")
+            return obj()
+
+
+def func6(obj: Callable[[], None]):
+    match obj:
+        case Callable():
+            reveal_type(obj, expected_text="() -> None")
+            return obj()
+
+        case x:
+            reveal_type(obj, expected_text="Never")
+
+
+class CallableProto(Protocol):
+    def __call__(self) -> None:
+        pass
+
+
+def func7(obj: CallableProto):
+    match obj:
+        case Callable():
+            reveal_type(obj, expected_text="CallableProto")
+            return obj()
+
+        case x:
+            reveal_type(obj, expected_text="Never")

@@ -10,6 +10,7 @@
 
 import { Disposable } from 'vscode-jsonrpc';
 import * as debug from './debug';
+import { addIfUnique, removeArrayElements } from './collectionUtils';
 
 export enum LogLevel {
     Error = 'error',
@@ -27,6 +28,10 @@ export interface ConsoleInterface {
 export namespace ConsoleInterface {
     export function is(obj: any): obj is ConsoleInterface {
         return obj.error !== undefined && obj.warn !== undefined && obj.info !== undefined && obj.log !== undefined;
+    }
+
+    export function hasLevel(console: any): console is ConsoleInterface & { level: LogLevel } {
+        return is(console) && 'level' in console;
     }
 }
 
@@ -131,7 +136,20 @@ export class StderrConsole implements ConsoleInterface {
     }
 }
 
-export class ConsoleWithLogLevel implements ConsoleInterface, Disposable {
+export interface Chainable {
+    addChain(console: ConsoleInterface): void;
+    removeChain(console: ConsoleInterface): void;
+}
+
+export namespace Chainable {
+    export function is(value: any): value is Chainable {
+        return value && value.addChain && value.removeChain;
+    }
+}
+
+export class ConsoleWithLogLevel implements ConsoleInterface, Chainable, Disposable {
+    private readonly _chains: ConsoleInterface[] = [];
+
     private _maxLevel = 2;
     private _disposed = false;
 
@@ -181,15 +199,26 @@ export class ConsoleWithLogLevel implements ConsoleInterface, Disposable {
         this._log(LogLevel.Log, `${this._prefix}${message}`);
     }
 
+    addChain(console: ConsoleInterface): void {
+        addIfUnique(this._chains, console);
+    }
+
+    removeChain(console: ConsoleInterface): void {
+        removeArrayElements(this._chains, (i) => i === console);
+    }
+
     private get _prefix() {
         return this._name ? `(${this._name}) ` : '';
     }
 
     private _log(level: LogLevel, message: string): void {
-        if (this._getNumericalLevel(level) > this._maxLevel) {
+        if (this._disposed) {
             return;
         }
-        if (this._disposed) {
+
+        this._processChains(level, message);
+
+        if (this._getNumericalLevel(level) > this._maxLevel) {
             return;
         }
 
@@ -200,6 +229,10 @@ export class ConsoleWithLogLevel implements ConsoleInterface, Disposable {
         const numericLevel = getLevelNumber(level);
         debug.assert(numericLevel !== undefined, 'Logger: unknown log level.');
         return numericLevel !== undefined ? numericLevel : 2;
+    }
+
+    private _processChains(level: LogLevel, message: string) {
+        this._chains.forEach((c) => log(c, level, message));
     }
 }
 

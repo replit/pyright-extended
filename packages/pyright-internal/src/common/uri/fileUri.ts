@@ -27,6 +27,8 @@ import { SerializedType, Uri, UriKinds } from './uri';
 
 type FileUriSerializedType = [0, string, string, string, string | undefined, 1 | 0];
 
+export const FileUriSchema = 'file';
+
 export class FileUri extends BaseUri {
     private _formattedString: string | undefined;
     private _normalizedPath: string | undefined;
@@ -43,7 +45,7 @@ export class FileUri extends BaseUri {
     }
 
     override get scheme(): string {
-        return 'file';
+        return FileUriSchema;
     }
 
     get fragment(): string {
@@ -85,6 +87,8 @@ export class FileUri extends BaseUri {
         originalString: string | undefined,
         isCaseSensitive: boolean
     ): FileUri {
+        filePath = isDiskPathRoot(filePath) ? ensureTrailingDirectorySeparator(filePath) : filePath;
+
         const key = FileUri._createKey(filePath, query, fragment);
         return new FileUri(key, filePath, query, fragment, originalString, isCaseSensitive);
     }
@@ -180,12 +184,15 @@ export class FileUri extends BaseUri {
         }
         return false;
     }
+
     override getPathLength(): number {
         return this._filePath.length;
     }
+
     override getPath(): string {
         return this._getNormalizedPath();
     }
+
     override getFilePath(): string {
         return this._filePath;
     }

@@ -1,7 +1,20 @@
 # This sample tests the TypeIs form.
 
-from typing import Any, Literal, Mapping, Sequence, TypeVar, Union
-from typing_extensions import TypeIs  # pyright: ignore[reportMissingModuleSource]
+# pyright: reportMissingModuleSource=false
+
+from typing import (
+    Any,
+    Callable,
+    Collection,
+    Literal,
+    Mapping,
+    Sequence,
+    TypeVar,
+    Union,
+    overload,
+)
+
+from typing_extensions import TypeIs
 
 
 def is_str1(val: Union[str, int]) -> TypeIs[str]:
@@ -88,7 +101,90 @@ def is_marsupial(val: Animal) -> TypeIs[Kangaroo | Koala]:
 
 
 # This should generate an error because list[T] isn't consistent with list[T | None].
-def has_no_nones(
-    val: list[T | None],
-) -> TypeIs[list[T]]:
+def has_no_nones(val: list[T | None]) -> TypeIs[list[T]]:
     return None not in val
+
+
+def takes_int_typeis(f: Callable[[object], TypeIs[int]]) -> None:
+    pass
+
+
+def int_typeis(val: object) -> TypeIs[int]:
+    return isinstance(val, int)
+
+
+def bool_typeis(val: object) -> TypeIs[bool]:
+    return isinstance(val, bool)
+
+
+takes_int_typeis(int_typeis)
+
+# This should generate an error because TypeIs is invariant.
+takes_int_typeis(bool_typeis)
+
+
+def is_two_element_tuple(val: tuple[T, ...]) -> TypeIs[tuple[T, T]]:
+    return len(val) == 2
+
+
+def func7(names: tuple[str, ...]):
+    if is_two_element_tuple(names):
+        reveal_type(names, expected_text="tuple[str, str]")
+    else:
+        reveal_type(names, expected_text="tuple[str, ...]")
+
+
+def is_int(obj: type) -> TypeIs[type[int]]: ...
+
+
+def func8(x: type) -> None:
+    if is_int(x):
+        reveal_type(x, expected_text="type[int]")
+
+
+def is_int_list(x: Collection[Any]) -> TypeIs[list[int]]:
+    raise NotImplementedError
+
+
+def func9(val: Collection[object]) -> None:
+    if is_int_list(val):
+        reveal_type(val, expected_text="list[int]")
+    else:
+        reveal_type(val, expected_text="Collection[object]")
+
+
+@overload
+def func10(v: tuple[int | str, ...], b: Literal[False]) -> TypeIs[tuple[str, ...]]: ...
+
+
+@overload
+def func10(
+    v: tuple[int | str, ...], b: Literal[True] = True
+) -> TypeIs[tuple[int, ...]]: ...
+
+
+def func10(v: tuple[int | str, ...], b: bool = True) -> bool: ...
+
+
+v0 = is_int(int)
+v1: bool = v0
+v2: int = v0
+v3 = v0 & v0
+
+
+def is_sequence_of_int(sequence: Sequence) -> TypeIs[Sequence[int]]:
+    return all(isinstance(x, int) for x in sequence)
+
+
+def func11(v: Sequence[int] | Sequence[str]):
+    if is_sequence_of_int(v):
+        reveal_type(v, expected_text="Sequence[int]")
+    else:
+        reveal_type(v, expected_text="Sequence[str]")
+
+
+def func12(v: Sequence[int | str] | Sequence[list[Any]]):
+    if is_sequence_of_int(v):
+        reveal_type(v, expected_text="Sequence[int]")
+    else:
+        reveal_type(v, expected_text="Sequence[int | str] | Sequence[list[Any]]")

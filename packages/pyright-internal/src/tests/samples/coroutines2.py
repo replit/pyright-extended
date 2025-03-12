@@ -5,9 +5,8 @@ import asyncio
 from typing import Any, Coroutine
 
 
-async def inspector(coro: Coroutine[Any, Any, Any]):
-    print(coro.cr_frame.f_locals)
-    return await coro
+async def inspector(cr: Coroutine[Any, Any, Any]):
+    return await cr
 
 
 async def inner(sleep: int, message: str) -> str:
