@@ -17,6 +17,8 @@ const _isMacintosh = process.platform === 'darwin';
 const _isLinux = process.platform === 'linux';
 
 export class ChokidarFileWatcherProvider implements FileWatcherProvider {
+    private _allowedExtensions = ['.py', '.pyi', '.ipynb'];
+
     constructor(private _console?: ConsoleInterface) {}
 
     createFileWatcher(paths: string[], listener: FileWatcherEventHandler): FileWatcher {
@@ -85,7 +87,7 @@ export class ChokidarFileWatcherProvider implements FileWatcherProvider {
             }
 
             if (stats && stats.isFile()) {
-                if (!path.basename(testPath).endsWith('.py')) {
+                if (!this._allowedExtensions.some((extension) => path.basename(testPath).endsWith(extension))) {
                     // Ignore non-Python files.
                     return true;
                 }
