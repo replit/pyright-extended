@@ -65,8 +65,7 @@ export class ChokidarFileWatcherProvider implements FileWatcherProvider {
             }
 
             // Check if any part of the path starts with a dot (hidden file/directory).
-            // Exclude '.' and '..' to avoid matching the current/parent directory indicators.
-            if (normalizedPath.split('/').some((part) => part.startsWith('.') && part !== '.' && part !== '..')) {
+            if (normalizedPath.split('/').some((part) => part.startsWith('.'))) {
                 return true;
             }
 
