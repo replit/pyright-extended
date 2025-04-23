@@ -44,7 +44,6 @@ export class ChokidarFileWatcherProvider implements FileWatcherProvider {
             watcherOptions.usePolling = false;
         }
 
-        // --- Define Standard Excludes ---
         const standardExcludePatterns: string[] = ['/node_modules/', '/__pycache__/'];
 
         const platformExcludes: string[] = [];
@@ -58,16 +57,20 @@ export class ChokidarFileWatcherProvider implements FileWatcherProvider {
         }
 
         const isStandardExcluded = (testPath: string): boolean => {
+            // Normalize path for consistent matching: ensure leading slash, use unix separators.
             const normalizedPath = path.normalize(`/${testPath}`).replace(/\\/g, '/');
 
             if (standardExcludePatterns.some((pattern) => normalizedPath.includes(pattern))) {
                 return true;
             }
 
+            // Check if any part of the path starts with a dot (hidden file/directory).
+            // Exclude '.' and '..' to avoid matching the current/parent directory indicators.
             if (normalizedPath.split('/').some((part) => part.startsWith('.') && part !== '.' && part !== '..')) {
                 return true;
             }
 
+            // Check if the path starts with any platform-specific exclude patterns.
             if (platformExcludes.some((pattern) => normalizedPath.startsWith(pattern))) {
                 return true;
             }
@@ -75,7 +78,8 @@ export class ChokidarFileWatcherProvider implements FileWatcherProvider {
             return false;
         };
 
-        // --- Set the ignored function ---
+        // Use a AnymatchMatcher handler function for `ignored`
+        // This allows us to ignore non-Python *files* while still traversing directories.
         watcherOptions.ignored = (testPath: string, stats?: fs.Stats): boolean => {
             if (isStandardExcluded(testPath)) {
                 return true;
@@ -83,6 +87,7 @@ export class ChokidarFileWatcherProvider implements FileWatcherProvider {
 
             if (stats && stats.isFile()) {
                 if (!path.basename(testPath).endsWith('.py')) {
+                    // Ignore non-Python files.
                     return true;
                 }
             }
@@ -90,7 +95,6 @@ export class ChokidarFileWatcherProvider implements FileWatcherProvider {
             return false;
         };
 
-        // --- Create Watcher ---
         const watcher = chokidar.watch(paths, watcherOptions);
 
         if (_isMacintosh && !watcher.options.useFsEvents) {
