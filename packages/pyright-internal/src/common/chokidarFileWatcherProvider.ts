@@ -17,7 +17,7 @@ const _isMacintosh = process.platform === 'darwin';
 const _isLinux = process.platform === 'linux';
 
 export class ChokidarFileWatcherProvider implements FileWatcherProvider {
-    private _allowedExtensions = ['.py', '.pyi', '.ipynb'];
+    private _allowedExtensions = ['.py', '.pyi', '.ipynb', '.toml'];
 
     constructor(private _console?: ConsoleInterface) {}
 
@@ -43,6 +43,8 @@ export class ChokidarFileWatcherProvider implements FileWatcherProvider {
         };
 
         if (_isMacintosh) {
+            // Explicitly disable on MacOS because it uses up large amounts of memory
+            // and CPU for large file hierarchies, resulting in instability and crashes.
             watcherOptions.usePolling = false;
         }
 
@@ -87,7 +89,7 @@ export class ChokidarFileWatcherProvider implements FileWatcherProvider {
             }
 
             if (stats && stats.isFile()) {
-                return !this._allowedExtensions.some((extension) => path.basename(testPath).endsWith(extension));
+                return !this._allowedExtensions.includes(path.extname(testPath).toLowerCase());
             }
 
             return false;
