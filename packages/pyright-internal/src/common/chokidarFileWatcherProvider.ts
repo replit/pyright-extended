@@ -87,10 +87,7 @@ export class ChokidarFileWatcherProvider implements FileWatcherProvider {
             }
 
             if (stats && stats.isFile()) {
-                if (!this._allowedExtensions.some((extension) => path.basename(testPath).endsWith(extension))) {
-                    // Ignore non-Python files.
-                    return true;
-                }
+                return !this._allowedExtensions.some((extension) => path.basename(testPath).endsWith(extension));
             }
 
             return false;
