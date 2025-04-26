@@ -7,6 +7,8 @@
  */
 
 import * as chokidar from 'chokidar';
+import * as fs from 'fs';
+import * as path from 'path';
 
 import { ConsoleInterface } from './console';
 import { FileWatcher, FileWatcherEventHandler, FileWatcherProvider } from './fileWatcher';
@@ -15,6 +17,8 @@ const _isMacintosh = process.platform === 'darwin';
 const _isLinux = process.platform === 'linux';
 
 export class ChokidarFileWatcherProvider implements FileWatcherProvider {
+    private _allowedExtensions = ['.py', '.pyi', '.ipynb', '.toml'];
+
     constructor(private _console?: ConsoleInterface) {}
 
     createFileWatcher(paths: string[], listener: FileWatcherEventHandler): FileWatcher {
@@ -44,23 +48,55 @@ export class ChokidarFileWatcherProvider implements FileWatcherProvider {
             watcherOptions.usePolling = false;
         }
 
-        const excludes: string[] = ['**/node_modules/**', '**/__pycache__/**', '**/.*', '**/.*/**'];
+        const standardExcludePatterns: string[] = ['/node_modules/', '/__pycache__/'];
+
+        const platformExcludes: string[] = [];
         if (_isMacintosh || _isLinux) {
-            if (paths.some((path) => path === '' || path === '/')) {
-                excludes.push('/dev/**');
+            if (paths.some((p) => p === '' || p === '/')) {
+                platformExcludes.push('/dev/');
                 if (_isLinux) {
-                    excludes.push('/proc/**', '/sys/**');
+                    platformExcludes.push('/proc/', '/sys/');
                 }
             }
         }
-        watcherOptions.ignored = excludes;
+
+        const isStandardExcluded = (testPath: string): boolean => {
+            // Normalize path for consistent matching: ensure leading slash, use unix separators.
+            const normalizedPath = path.normalize(`/${testPath}`).replace(/\\/g, '/');
+
+            if (standardExcludePatterns.some((pattern) => normalizedPath.includes(pattern))) {
+                return true;
+            }
+
+            // Check if any part of the path starts with a dot (hidden file/directory).
+            if (normalizedPath.split('/').some((part) => part.startsWith('.'))) {
+                return true;
+            }
+
+            // Check if the path starts with any platform-specific exclude patterns.
+            if (platformExcludes.some((pattern) => normalizedPath.startsWith(pattern))) {
+                return true;
+            }
+
+            return false;
+        };
+
+        // Use a AnymatchMatcher handler function for `ignored`
+        // This allows us to ignore non-Python *files* while still traversing directories.
+        watcherOptions.ignored = (testPath: string, stats?: fs.Stats): boolean => {
+            if (isStandardExcluded(testPath)) {
+                return true;
+            }
+
+            if (stats && stats.isFile()) {
+                return !this._allowedExtensions.includes(path.extname(testPath).toLowerCase());
+            }
+
+            return false;
+        };
 
         const watcher = chokidar.watch(paths, watcherOptions);
-        watcher.on('error', (_) => {
-            this._console?.error('Error returned from file system watcher.');
-        });
 
-        // Detect if for some reason the native watcher library fails to load
         if (_isMacintosh && !watcher.options.useFsEvents) {
             this._console?.info('Watcher could not use native fsevents library. File system watcher disabled.');
         }
