@@ -23,7 +23,6 @@ import { isArray } from '../common/core';
 import { TextEditAction } from '../common/editAction';
 import { convertOffsetToPosition } from '../common/positionUtils';
 import { rangesAreEqual } from '../common/textRange';
-import { Uri } from '../common/uri/uri';
 import { NameNode } from '../parser/parseNodes';
 import { Range } from './harness/fourslash/fourSlashTypes';
 import { parseAndGetTestState, TestState } from './harness/fourslash/testState';
@@ -427,7 +426,7 @@ test('getRelativeModuleName over fake file', () => {
     `;
 
     const state = parseAndGetTestState(code).state;
-    const dest = Uri.file(state.getMarkerByName('dest')!.fileName);
+    const dest = state.getMarkerByName('dest')!.fileUri;
 
     assert.strictEqual(
         getRelativeModuleName(
@@ -490,12 +489,12 @@ test('resolve alias of not needed file', () => {
     const state = parseAndGetTestState(code).state;
     const marker = state.getMarkerByName('marker')!;
 
-    const evaluator = state.workspace.service.getEvaluator()!;
+    const evaluator = state.workspace.service.test_program.evaluator!;
     state.openFile(marker.fileName);
 
     const markerUri = marker.fileUri;
-    const parseResults = state.workspace.service.getParseResult(markerUri)!;
-    const nameNode = findNodeByOffset(parseResults.parseTree, marker.position) as NameNode;
+    const parseResults = state.workspace.service.getParseResults(markerUri)!;
+    const nameNode = findNodeByOffset(parseResults.parserOutput.parseTree, marker.position) as NameNode;
     const aliasDecls = evaluator.getDeclarationsForNameNode(nameNode)!;
 
     // Unroot the file. we can't explicitly close the file since it will unload the file from test program.
@@ -514,8 +513,8 @@ test('resolve alias of not needed file', () => {
 
 function testRelativeModuleName(code: string, expected: string | undefined, ignoreFolderStructure = false) {
     const state = parseAndGetTestState(code).state;
-    const src = Uri.file(state.getMarkerByName('src')!.fileName);
-    const dest = Uri.file(state.getMarkerByName('dest')!.fileName);
+    const src = state.getMarkerByName('src')!.fileUri;
+    const dest = state.getMarkerByName('dest')!.fileUri;
 
     assert.strictEqual(
         getRelativeModuleName(state.fs, src, dest, state.configOptions, ignoreFolderStructure),
@@ -531,9 +530,9 @@ function testAddition(
 ) {
     const state = parseAndGetTestState(code).state;
     const marker = state.getMarkerByName(markerName)!;
-    const parseResults = state.program.getBoundSourceFile(Uri.file(marker!.fileName))!.getParseResults()!;
+    const parseResults = state.program.getBoundSourceFile(marker!.fileUri)!.getParseResults()!;
 
-    const importStatement = getTopLevelImports(parseResults.parseTree).orderedImports.find(
+    const importStatement = getTopLevelImports(parseResults.parserOutput.parseTree).orderedImports.find(
         (i) => i.moduleName === moduleName
     )!;
     const edits = getTextEditsForAutoImportSymbolAddition(importNameInfo, importStatement, parseResults);
@@ -551,9 +550,9 @@ function testInsertions(
 ) {
     const state = parseAndGetTestState(code).state;
     const marker = state.getMarkerByName(markerName)!;
-    const parseResults = state.program.getBoundSourceFile(Uri.file(marker!.fileName))!.getParseResults()!;
+    const parseResults = state.program.getBoundSourceFile(marker!.fileUri)!.getParseResults()!;
 
-    const importStatements = getTopLevelImports(parseResults.parseTree);
+    const importStatements = getTopLevelImports(parseResults.parserOutput.parseTree);
     const edits = getTextEditsForAutoImportInsertions(
         importNameInfo,
         importStatements,

@@ -49,6 +49,7 @@ import {
     isFunction,
     isInstantiableClass,
     isOverloadedFunction,
+    isUnion,
     OverloadedFunctionType,
     TupleTypeArgument,
     Type,
@@ -77,6 +78,7 @@ export function synthesizeDataClassMethods(
     evaluator: TypeEvaluator,
     node: ClassNode,
     classType: ClassType,
+    isNamedTuple: boolean,
     skipSynthesizeInit: boolean,
     hasExistingInitMethod: boolean,
     skipSynthesizeHash: boolean
@@ -85,18 +87,23 @@ export function synthesizeDataClassMethods(
 
     const classTypeVar = synthesizeTypeVarForSelfCls(classType, /* isClsParam */ true);
     const newType = FunctionType.createSynthesizedInstance('__new__', FunctionTypeFlags.ConstructorMethod);
+    newType.details.constructorTypeVarScopeId = classType.details.typeVarScopeId;
     const initType = FunctionType.createSynthesizedInstance('__init__');
+    initType.details.constructorTypeVarScopeId = classType.details.typeVarScopeId;
 
-    // Override `__new__` because some dataclasses (such as those that are
-    // created by subclassing from NamedTuple) may have their own custom
-    // __new__ that requires overriding.
+    // Generate both a __new__ and an __init__ method. The parameters of the
+    // __new__ method are based on field definitions for NamedTuple classes,
+    // and the parameters of the __init__ method are based on field definitions
+    // in other cases.
     FunctionType.addParameter(newType, {
         category: ParameterCategory.Simple,
         name: 'cls',
         type: classTypeVar,
         hasDeclaredType: true,
     });
-    FunctionType.addDefaultParameters(newType);
+    if (!isNamedTuple) {
+        FunctionType.addDefaultParameters(newType);
+    }
     newType.details.declaredReturnType = convertToInstance(classTypeVar);
 
     const selfParam: FunctionParameter = {
@@ -106,6 +113,9 @@ export function synthesizeDataClassMethods(
         hasDeclaredType: true,
     };
     FunctionType.addParameter(initType, selfParam);
+    if (isNamedTuple) {
+        FunctionType.addDefaultParameters(initType);
+    }
     initType.details.declaredReturnType = evaluator.getNoneType();
 
     // Maintain a list of all dataclass entries (including
@@ -122,12 +132,16 @@ export function synthesizeDataClassMethods(
         FunctionType.addDefaultParameters(initType);
     }
 
+    // Add field-based parameters to either the __new__ or __init__ method
+    // based on whether this is a NamedTuple or a dataclass.
+    const constructorType = isNamedTuple ? newType : initType;
+
     // Maintain a list of "type evaluators".
     type EntryTypeEvaluator = () => Type;
     const localEntryTypeEvaluator: { entry: DataClassEntry; evaluator: EntryTypeEvaluator }[] = [];
     let sawKeywordOnlySeparator = false;
 
-    classType.details.fields.forEach((symbol, name) => {
+    ClassType.getSymbolTable(classType).forEach((symbol, name) => {
         if (symbol.isIgnoredForProtocolMatch()) {
             return;
         }
@@ -214,6 +228,7 @@ export function synthesizeDataClassMethods(
                     const callType = callTypeResult.type;
 
                     if (
+                        !isNamedTuple &&
                         isDataclassFieldConstructor(
                             callType,
                             classType.details.dataClassBehaviors?.fieldDescriptorNames || []
@@ -303,7 +318,7 @@ export function synthesizeDataClassMethods(
                         });
 
                     // Is this a KW_ONLY separator introduced in Python 3.10?
-                    if (statement.valueExpression.value === '_') {
+                    if (!isNamedTuple && statement.valueExpression.value === '_') {
                         const annotatedType = variableTypeEvaluator();
 
                         if (isClassInstance(annotatedType) && ClassType.isBuiltIn(annotatedType, 'KW_ONLY')) {
@@ -320,12 +335,9 @@ export function synthesizeDataClassMethods(
 
                 // Don't include class vars. PEP 557 indicates that they shouldn't
                 // be considered data class entries.
-                const variableSymbol = classType.details.fields.get(variableName);
-                const isFinal = variableSymbol
-                    ?.getDeclarations()
-                    .some((decl) => decl.type === DeclarationType.Variable && decl.isFinal);
+                const variableSymbol = ClassType.getSymbolTable(classType).get(variableName);
 
-                if (variableSymbol?.isClassVar() && !isFinal) {
+                if (variableSymbol?.isClassVar() && !variableSymbol?.isFinalVarInClassBody()) {
                     // If an ancestor class declared an instance variable but this dataclass
                     // declares a ClassVar, delete the older one from the full data class entries.
                     // We exclude final variables here because a Final type annotation is implicitly
@@ -386,6 +398,14 @@ export function synthesizeDataClassMethods(
                             dataClassEntry.hasDefault = true;
                             dataClassEntry.defaultValueExpression = oldEntry.defaultValueExpression;
                             hasDefaultValue = true;
+
+                            // Warn the user of this case because it can result in type errors if the
+                            // default value is incompatible with the new type.
+                            evaluator.addDiagnostic(
+                                DiagnosticRule.reportGeneralTypeIssues,
+                                LocMessage.dataClassFieldInheritedDefault().format({ fieldName: variableName }),
+                                variableNameNode
+                            );
                         }
 
                         fullDataClassEntries[insertIndex] = dataClassEntry;
@@ -452,7 +472,9 @@ export function synthesizeDataClassMethods(
         }
     });
 
-    classType.details.dataClassEntries = localDataClassEntries;
+    if (!isNamedTuple) {
+        classType.details.dataClassEntries = localDataClassEntries;
+    }
 
     // Now that the dataClassEntries field has been set with a complete list
     // of local data class entries for this class, perform deferred type
@@ -463,7 +485,7 @@ export function synthesizeDataClassMethods(
         entryEvaluator.entry.type = entryEvaluator.evaluator();
     });
 
-    const symbolTable = classType.details.fields;
+    const symbolTable = ClassType.getSymbolTable(classType);
     const keywordOnlyParams: FunctionParameter[] = [];
 
     if (!skipSynthesizeInit && !hasExistingInitMethod) {
@@ -521,15 +543,15 @@ export function synthesizeDataClassMethods(
                     if (entry.isKeywordOnly) {
                         keywordOnlyParams.push(functionParam);
                     } else {
-                        FunctionType.addParameter(initType, functionParam);
+                        FunctionType.addParameter(constructorType, functionParam);
                     }
                 }
             });
 
             if (keywordOnlyParams.length > 0) {
-                FunctionType.addKeywordOnlyParameterSeparator(initType);
+                FunctionType.addKeywordOnlyParameterSeparator(constructorType);
                 keywordOnlyParams.forEach((param) => {
-                    FunctionType.addParameter(initType, param);
+                    FunctionType.addParameter(constructorType, param);
                 });
             }
         }
@@ -833,7 +855,19 @@ function getConverterAsFunction(
     }
 
     if (isInstantiableClass(converterType)) {
-        return createFunctionFromConstructor(evaluator, converterType);
+        let fromConstructor = createFunctionFromConstructor(evaluator, converterType);
+        if (fromConstructor) {
+            // If conversion to a constructor resulted in a union type, we'll
+            // choose the first of the two subtypes, which typically corresponds
+            // to the __init__ method (rather than the __new__ method).
+            if (isUnion(fromConstructor)) {
+                fromConstructor = fromConstructor.subtypes[0];
+            }
+
+            if (isFunction(fromConstructor) || isOverloadedFunction(fromConstructor)) {
+                return fromConstructor;
+            }
+        }
     }
 
     return undefined;
@@ -869,7 +903,7 @@ function getDescriptorForConverterField(
     descriptorClass.details.baseClasses.push(evaluator.getBuiltInType(dataclassNode, 'object'));
     computeMroLinearization(descriptorClass);
 
-    const fields = descriptorClass.details.fields;
+    const fields = ClassType.getSymbolTable(descriptorClass);
     const selfType = synthesizeTypeVarForSelfCls(descriptorClass, /* isClsParam */ false);
 
     const setFunction = FunctionType.createSynthesizedInstance('__set__');

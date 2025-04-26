@@ -43,6 +43,8 @@ import {
     AnyType,
     ClassType,
     combineTypes,
+    FunctionType,
+    FunctionTypeFlags,
     isAnyOrUnknown,
     isClass,
     isClassInstance,
@@ -749,10 +751,15 @@ function narrowTypeBasedOnClassPattern(
                 }
 
                 // We might be able to narrow further based on arguments, but only
-                // if the types match exactly or the subtype is a final class and
-                // therefore cannot be subclassed.
+                // if the types match exactly, the subject subtype is a final class (and
+                // therefore cannot be subclassed), or the pattern class is a protocol
+                // class.
                 if (!evaluator.assignType(subjectSubtypeExpanded, classInstance)) {
-                    if (isClass(subjectSubtypeExpanded) && !ClassType.isFinal(subjectSubtypeExpanded)) {
+                    if (
+                        isClass(subjectSubtypeExpanded) &&
+                        !ClassType.isFinal(subjectSubtypeExpanded) &&
+                        !ClassType.isProtocolClass(classInstance)
+                    ) {
                         return subjectSubtypeExpanded;
                     }
                 }
@@ -785,6 +792,16 @@ function narrowTypeBasedOnClassPattern(
             pattern.className
         );
         return NeverType.createNever();
+    } else if (
+        isInstantiableClass(exprType) &&
+        ClassType.isProtocolClass(exprType) &&
+        !ClassType.isRuntimeCheckable(exprType)
+    ) {
+        evaluator.addDiagnostic(
+            DiagnosticRule.reportGeneralTypeIssues,
+            LocAddendum.protocolRequiresRuntimeCheckable(),
+            pattern.className
+        );
     }
 
     return evaluator.mapSubtypesExpandTypeVars(
@@ -801,6 +818,20 @@ function narrowTypeBasedOnClassPattern(
 
                 return evaluator.mapSubtypesExpandTypeVars(type, /* options */ undefined, (subjectSubtypeExpanded) => {
                     if (isAnyOrUnknown(subjectSubtypeExpanded)) {
+                        if (isInstantiableClass(expandedSubtype) && ClassType.isBuiltIn(expandedSubtype, 'Callable')) {
+                            // Convert to an unknown callable type.
+                            const unknownCallable = FunctionType.createSynthesizedInstance(
+                                '',
+                                FunctionTypeFlags.SkipArgsKwargsCompatibilityCheck
+                            );
+                            FunctionType.addDefaultParameters(
+                                unknownCallable,
+                                /* useUnknown */ isUnknown(subjectSubtypeExpanded)
+                            );
+                            unknownCallable.details.declaredReturnType = subjectSubtypeExpanded;
+                            return unknownCallable;
+                        }
+
                         return convertToInstance(unexpandedSubtype);
                     }
 
@@ -1275,7 +1306,7 @@ function getSequencePatternInfo(
                             typeArgs.splice(tupleIndeterminateIndex, 0, typeArgs[tupleIndeterminateIndex]);
                         }
 
-                        if (typeArgs.length > patternEntryCount) {
+                        if (typeArgs.length > patternEntryCount && patternStarEntryIndex === undefined) {
                             typeArgs.splice(tupleIndeterminateIndex, 1);
                         }
                     }
@@ -1947,6 +1978,8 @@ export function getPatternSubtypeNarrowingCallback(
                         subtype.tupleTypeArguments.every((e) => !e.isUnbounded)
                     ) {
                         narrowedSubtypes.push(subtype.tupleTypeArguments[matchingEntryIndex].type);
+                    } else if (isNever(narrowedSubjectType)) {
+                        narrowedSubtypes.push(narrowedSubjectType);
                     } else {
                         canNarrow = false;
                     }

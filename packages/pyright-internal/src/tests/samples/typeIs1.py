@@ -1,6 +1,6 @@
 # This sample tests the TypeIs form.
 
-from typing import Any, Literal, Mapping, Sequence, TypeVar, Union
+from typing import Any, Callable, Literal, Mapping, Sequence, TypeVar, Union
 from typing_extensions import TypeIs  # pyright: ignore[reportMissingModuleSource]
 
 
@@ -12,7 +12,7 @@ def func1(val: Union[str, int]):
     if is_str1(val):
         reveal_type(val, expected_text="str")
     else:
-        reveal_type(val, expected_text="int")
+        reveal_type(val, expected_text="str | int")
 
 
 def is_true(o: object) -> TypeIs[Literal[True]]: ...
@@ -33,16 +33,20 @@ def is_list(val: object) -> TypeIs[list[Any]]:
 
 def func3(val: dict[str, str] | list[str] | list[int] | Sequence[int]):
     if is_list(val):
-        reveal_type(val, expected_text="list[str] | list[int] | list[Any]")
+        reveal_type(val, expected_text="list[str] | list[int]")
     else:
-        reveal_type(val, expected_text="dict[str, str] | Sequence[int]")
+        reveal_type(
+            val, expected_text="dict[str, str] | list[str] | list[int] | Sequence[int]"
+        )
 
 
 def func4(val: dict[str, str] | list[str] | list[int] | tuple[int]):
     if is_list(val):
         reveal_type(val, expected_text="list[str] | list[int]")
     else:
-        reveal_type(val, expected_text="dict[str, str] | tuple[int]")
+        reveal_type(
+            val, expected_text="dict[str, str] | list[str] | list[int] | tuple[int]"
+        )
 
 
 _K = TypeVar("_K")
@@ -55,7 +59,9 @@ def is_dict(val: Mapping[_K, _V]) -> TypeIs[dict[_K, _V]]:
 
 def func5(val: dict[_K, _V] | Mapping[_K, _V]):
     if not is_dict(val):
-        reveal_type(val, expected_text="Mapping[_K@func5, _V@func5]")
+        reveal_type(
+            val, expected_text="dict[_K@func5, _V@func5] | Mapping[_K@func5, _V@func5]"
+        )
     else:
         reveal_type(val, expected_text="dict[_K@func5, _V@func5]")
 
@@ -88,7 +94,23 @@ def is_marsupial(val: Animal) -> TypeIs[Kangaroo | Koala]:
 
 
 # This should generate an error because list[T] isn't consistent with list[T | None].
-def has_no_nones(
-    val: list[T | None],
-) -> TypeIs[list[T]]:
+def has_no_nones(val: list[T | None]) -> TypeIs[list[T]]:
     return None not in val
+
+
+def takes_int_typeis(f: Callable[[object], TypeIs[int]]) -> None:
+    pass
+
+
+def int_typeis(val: object) -> TypeIs[int]:
+    return isinstance(val, int)
+
+
+def bool_typeis(val: object) -> TypeIs[bool]:
+    return isinstance(val, bool)
+
+
+takes_int_typeis(int_typeis)
+
+# This should generate an error because TypeIs is invariant.
+takes_int_typeis(bool_typeis)

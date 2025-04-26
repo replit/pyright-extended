@@ -123,26 +123,30 @@ export function getLocaleFromEnv() {
         return localeOverride;
     }
 
-    const env = process.env;
+    try {
+        const env = process?.env;
 
-    // Start with the VSCode environment variables.
-    const vscodeConfigString = env.VSCODE_NLS_CONFIG;
-    if (vscodeConfigString) {
-        try {
-            return JSON.parse(vscodeConfigString).locale;
-        } catch {
-            // Fall through
+        // Start with the VSCode environment variables.
+        const vscodeConfigString = env?.VSCODE_NLS_CONFIG;
+        if (vscodeConfigString) {
+            try {
+                return JSON.parse(vscodeConfigString).locale;
+            } catch {
+                // Fall through
+            }
         }
-    }
 
-    // See if there is a language env variable.
-    const localeString = env.LC_ALL || env.LC_MESSAGES || env.LANG || env.LANGUAGE;
-    if (localeString) {
-        // This string may contain a local followed by an encoding (e.g. "en-us.UTF-8").
-        const localeStringSplit = localeString.split('.');
-        if (localeStringSplit.length > 0 && localeStringSplit[0]) {
-            return localeStringSplit[0];
+        // See if there is a language env variable.
+        const localeString = env?.LC_ALL || env?.LC_MESSAGES || env?.LANG || env?.LANGUAGE;
+        if (localeString) {
+            // This string may contain a local followed by an encoding (e.g. "en-us.UTF-8").
+            const localeStringSplit = localeString.split('.');
+            if (localeStringSplit.length > 0 && localeStringSplit[0]) {
+                return localeStringSplit[0];
+            }
         }
+    } catch {
+        // Just use the default locale
     }
 
     // Fall back to the default locale.
@@ -191,8 +195,10 @@ export namespace Localizer {
                 getRawString('Diagnostic.annotatedParamCountMismatch')
             );
         export const annotatedTypeArgMissing = () => getRawString('Diagnostic.annotatedTypeArgMissing');
+        export const annotationBytesString = () => getRawString('Diagnostic.annotationBytesString');
         export const annotationFormatString = () => getRawString('Diagnostic.annotationFormatString');
         export const annotationNotSupported = () => getRawString('Diagnostic.annotationNotSupported');
+        export const annotationRawString = () => getRawString('Diagnostic.annotationRawString');
         export const annotationSpansStrings = () => getRawString('Diagnostic.annotationSpansStrings');
         export const annotationStringEscape = () => getRawString('Diagnostic.annotationStringEscape');
         export const argAssignment = () =>
@@ -345,6 +351,8 @@ export namespace Localizer {
             new ParameterizedString<{ funcName: string; fieldType: string; fieldName: string }>(
                 getRawString('Diagnostic.dataClassConverterOverloads')
             );
+        export const dataClassFieldInheritedDefault = () =>
+            new ParameterizedString<{ fieldName: string }>(getRawString('Diagnostic.dataClassFieldInheritedDefault'));
         export const dataClassFieldWithDefault = () => getRawString('Diagnostic.dataClassFieldWithDefault');
         export const dataClassFieldWithoutAnnotation = () => getRawString('Diagnostic.dataClassFieldWithoutAnnotation');
         export const dataClassFieldWithPrivateName = () => getRawString('Diagnostic.dataClassFieldWithPrivateName');
@@ -553,6 +561,7 @@ export namespace Localizer {
             );
         export const inconsistentIndent = () => getRawString('Diagnostic.inconsistentIndent');
         export const inconsistentTabs = () => getRawString('Diagnostic.inconsistentTabs');
+        export const initMethodSelfParamTypeVar = () => getRawString('Diagnostic.initMethodSelfParamTypeVar');
         export const initMustReturnNone = () => getRawString('Diagnostic.initMustReturnNone');
         export const initSubclassClsParam = () => getRawString('Diagnostic.initSubclassClsParam');
         export const initSubclassCallFailed = () => getRawString('Diagnostic.initSubclassCallFailed');
@@ -595,6 +604,7 @@ export namespace Localizer {
         export const listAssignmentMismatch = () =>
             new ParameterizedString<{ type: string }>(getRawString('Diagnostic.listAssignmentMismatch'));
         export const listInAnnotation = () => getRawString('Diagnostic.listInAnnotation');
+        export const literalNamedUnicodeEscape = () => getRawString('Diagnostic.literalNamedUnicodeEscape');
         export const literalUnsupportedType = () => getRawString('Diagnostic.literalUnsupportedType');
         export const literalEmptyArgs = () => getRawString('Diagnostic.literalEmptyArgs');
         export const literalNotAllowed = () => getRawString('Diagnostic.literalNotAllowed');
@@ -1506,6 +1516,8 @@ export namespace Localizer {
             new ParameterizedString<{ sourceType: string; destType: string }>(
                 getRawString('DiagnosticAddendum.typedDictFinalMismatch')
             );
+        export const typedDictKeyAccess = () =>
+            new ParameterizedString<{ name: string }>(getRawString('DiagnosticAddendum.typedDictKeyAccess'));
         export const typedDictNotAllowed = () => getRawString('DiagnosticAddendum.typedDictNotAllowed');
         export const typeIncompatible = () =>
             new ParameterizedString<{ sourceType: string; destType: string }>(

@@ -102,7 +102,7 @@ export class PackageTypeVerifier {
             this._configOptions.evaluateUnknownImportsAsAny = true;
         }
 
-        this._execEnv = this._configOptions.findExecEnvironment(Uri.file('.', _serviceProvider.fs().isCaseSensitive));
+        this._execEnv = this._configOptions.findExecEnvironment(Uri.file('.', _serviceProvider));
         this._importResolver = new ImportResolver(this._serviceProvider, this._configOptions, this._host);
         this._program = new Program(this._importResolver, this._configOptions, this._serviceProvider);
     }
@@ -283,7 +283,7 @@ export class PackageTypeVerifier {
                     isExported: true,
                 };
 
-                const parseTree = sourceFile.getParseResults()!.parseTree;
+                const parseTree = sourceFile.getParserOutput()!.parseTree;
                 const moduleScope = getScopeForNode(parseTree)!;
 
                 this._getPublicSymbolsInSymbolTable(
@@ -331,7 +331,7 @@ export class PackageTypeVerifier {
                                     alternateSymbolNames,
                                     module,
                                     fullName,
-                                    symbolType.details.fields,
+                                    ClassType.getSymbolTable(symbolType),
                                     ScopeType.Class
                                 );
                             }
@@ -396,7 +396,7 @@ export class PackageTypeVerifier {
             const sourceFile = this._program.getBoundSourceFile(modulePath);
 
             if (sourceFile) {
-                const parseTree = sourceFile.getParseResults()!.parseTree;
+                const parseTree = sourceFile.getParserOutput()!.parseTree;
                 const moduleScope = getScopeForNode(parseTree)!;
 
                 this._getTypeKnownStatusForSymbolTable(
@@ -1149,7 +1149,7 @@ export class PackageTypeVerifier {
         const symbolTableTypeKnownStatus = this._getTypeKnownStatusForSymbolTable(
             report,
             type.details.fullName,
-            type.details.fields,
+            ClassType.getSymbolTable(type),
             ScopeType.Class,
             publicSymbols,
             (name: string, symbol: Symbol) => {
@@ -1159,7 +1159,7 @@ export class PackageTypeVerifier {
                 if (!symbol.hasTypedDeclarations()) {
                     for (const mroClass of type.details.mro.slice(1)) {
                         if (isClass(mroClass)) {
-                            const overrideSymbol = mroClass.details.fields.get(name);
+                            const overrideSymbol = ClassType.getSymbolTable(mroClass).get(name);
                             if (overrideSymbol && overrideSymbol.hasTypedDeclarations()) {
                                 return overrideSymbol;
                             }
@@ -1489,7 +1489,7 @@ export class PackageTypeVerifier {
                 ? resolvedPath.getDirectory()
                 : importResult.packageDirectory ?? Uri.empty();
             let isModuleSingleFile = false;
-            if (resolvedPath && stripFileExtension(resolvedPath.fileName) !== '__init__') {
+            if (resolvedPath && !resolvedPath.isEmpty() && stripFileExtension(resolvedPath.fileName) !== '__init__') {
                 isModuleSingleFile = true;
             }
 
